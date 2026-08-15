@@ -1,4 +1,22 @@
 #!/usr/bin/env node
+// TODO: reject whitespace-only search terms: the empty-string guard below uses
+//   `!searchTerm`, which "   " passes. A whitespace-only term matches ~236 sessions
+//   ("nearly everything"). Fix: `if (!searchTerm || !searchTerm.trim())`.
+// TODO: cosmetic: when the codex store is missing, the Method line prints
+//   "scanned 0 JSONL session logs ...", which is less clear than the opencode
+//   side's "no database found ...". Give the codex line a matching "no sessions
+//   found under ..." wording when no rollout files exist.
+// TODO: non-ASCII case-insensitivity is inconsistent across backends. The codex
+//   side lowercases the whole file (content.toLowerCase()), so it is case-
+//   insensitive for any Unicode. SQLite LIKE is case-insensitive for ASCII only,
+//   so on the opencode side "É" and "é" can return different sets. Possible
+//   fixes: (1) normalize both sides to lowercase via strtolower (still ASCII-only
+//   in SQLite) or better use the SQLite ICU extension / COLLATE NOCASE-ICU;
+//   (2) lowercase the search term in JS and query the DB with LIKE on a
+//   lower(data) expression (needs a scan, no index, slow for big DBs);
+//   (3) also lowercase in JS and additionally probe the codex side the same way
+//   (already done). For full Unicode case folding, the robust option is to
+//   extract text and compare in JS (like the codex side) rather than SQL LIKE.
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
