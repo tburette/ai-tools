@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+# put in the clipboard the (full) path of the most recently taken screenshot 
+# can be installed in a directory on the path such as ~/.local/bin
+# fails if the file has a /n in it
+(cd ~/Pictures/Screenshots; realpath "$(ls -1t ~/Pictures/Screenshots | head -n1)" | tr -d "\n" | xclip -sel c)
