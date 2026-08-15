@@ -1,44 +1,39 @@
 # AGENTS.md
 
-This repository contains source code, skills, command-line utilities.
+This repository is the source for a collection of agent tools, skills, and command-line utilities. Each directory is its own projet.
 
-## Repository scope
+## Repository map
 
-- Tools should be built for both opencode and codex.
-- Each top-level directory is the directory of a tool (or skill or ...). It should be possible to just copy and paste it into the proper Agentic tool directory and it should work.
-- The tools should remain independenty understandable and usable. Do not create unnecessary coupling between unrelated tools. One directory = one tool.
-- Keep generic mechanisms separate from application-, platform-, or project-specific adapters when that boundary improves reuse or safety.
+- `pagefetch/` is a Node.js CLI. Its shared implementation is under `src/`, its CLI entry point is under `bin/`, and its OpenCode and MiMoCode adapters live under `tools/`.
+- `pagefetch/delay-server/` is a separate local development utility with its own package manifest, CLI, README, and tests. It is not a root-level test runner.
+- `web-inspector/` is a `SKILL.md`-based Playwright inspection tool. Its Codex metadata is in `agents/openai.yaml`, and its runner and smoke test are in `scripts/`.
+- `session-search/` is a standalone Node.js skill for searching local Codex and OpenCode session stores. Its runtime requirement and privacy boundary are documented in its `SKILL.md`.
+- `lastscreenshot/` is a user-local Bash utility. It depends on `xclip` and the user's `~/Pictures/Screenshots` directory, and it writes the path to the last screenshot taken to the clipboard.
 
-## Source of truth and installed copies
+Treat each component directory as independently understandable and usable unless its documentation explicitly describes a nested component.
 
-- Treat this Git repository as the source of truth not the directories where the tools where installed.
-- Do not edit generated, cached, copied, or installed versions of a tool as a substitute for changing its source here.
-- When an  installed tool needs to be changed, update the source here first, validate it, and perform an eventual installation or synchronization only after warning the user and having obtained his approval to install.
-- Never edit dependency directories such as `node_modules/`.
+## Compatibility and component boundaries
+
+- The compatibility goal for new or changed agent-facing tools is Codex and OpenCodex. 
+- Keep reusable mechanisms independent from agent-, platform-, or application-specific adapters. Put shared behavior in the component's core and keep adapters thin.
+- For every user-visible tool or skill change, keep its documentation current: supported hosts, prerequisites, installation/copy/link steps, runnable examples, outputs and side effects, limitations, security considerations, and validation.
+- Keep `SKILL.md` front matter, trigger descriptions, instructions, and any agent metadata accurate. Move detailed, optional material to tool-local documentation or references rather than duplicating it in this root file.
 
 ## Before making changes
 
-- Confirm the repository root and inspect `git status` before editing.
-- Preserve unrelated user changes. If the worktree is dirty, warn the user and stop work if (really) necessary. Distinguish the user's changes from the current task and avoid overwriting them.
-- Search for existing conventions and reusable helpers before adding new files or abstractions.
-- Clarify or document assumptions that materially affect public behavior, security, portability, or compatibility.
+- Confirm the repository root with `git rev-parse --show-toplevel` and inspect `git status --short` before editing.
+- Preserve unrelated user changes. If dirty files overlap the intended change or their ownership is unclear, stop and ask for direction. Otherwise, leave them untouched and work around them.
+- Read the closest `README.md`, `SKILL.md`, package manifest, tests, and platform adapter before changing a component. Search for existing conventions and reusable helpers before adding files or abstractions.
 
-## Design principles
+## Source of truth, installation, and dependencies
 
-- Keep public interfaces explicit. Avoid hidden environment discovery, surprising side effects, and silent fallback behavior unless they are part of a documented contract.
-- Use the simplest design that meets the demonstrated need. Record meaningful limitations rather than adding speculative complexity.
+- Change the source in this repository first. Do not edit installed, generated, cached, copied, or linked copies instead of their source.
+- Never edit `node_modules/`, global package directories, browser caches, or installed copies under locations such as `~/.codex`, `~/.config/opencode`, or `~/.config/mimocode` as a substitute for a source change.
 
-## Documentation and skill packaging
+## Design and documentation principles
 
-- Update documentation in the same change as user-visible behavior.
-- Keep command examples runnable and consistent with current interfaces.
-- Document defaults, precedence, side effects, persistent state, security considerations, limitations, and troubleshooting relevant to the feature.
-- If a directory is an agent skill, keep its `SKILL.md` complete and accurate and update any agent metadata when its purpose or invocation changes.
-- Skill instructions should identify the correct tool for the task, define safety boundaries, and tell the agent how to validate results without embedding project-specific facts in a generic skill.
-- Keep implementation plans clearly marked as plans. Do not present planned commands or files as already available.
-
-## Do not
-
-- Do not edit files outside this repository as part of a tool change unless the user explicitly puts those files in scope.
+- Keep public interfaces explicit. Use the simplest design that meets the demonstrated need, and record meaningful limitations instead of adding speculative complexity.
+- Update documentation in the same change as user-visible behavior. Keep examples runnable and consistent with current interfaces, and document relevant defaults, precedence, persistent state, security considerations, limitations, and troubleshooting.
+- Skill instructions should identify the correct tool for the task, and explain how to validate results without embedding application-specific facts in generic skills.
 - Do not conceal failures with broad exception handling, unconditional success exit codes, or undocumented fallbacks.
-- Do not place application-specific logic into a generic tool merely because one immediate consumer needs it.
+- Do not place application-specific behavior in a generic tool just because one immediate consumer needs it.
