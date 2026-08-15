@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Inspector"
+  short_description: "Inspect rendered pages with Playwright"
+  default_prompt: "Use $web-inspector to render this page, inspect it visually, and report any issues."
