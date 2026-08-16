@@ -9,6 +9,20 @@ Use this skill for read-only inspection of an authorized WordPress site, its wp-
 
 The MVP is deliberately explicit and read-only. It never accepts passwords, submits content changes, saves, publishes, uploads, installs, activates, trashes, or resets WordPress data. A persistent browser profile contains bearer credentials; protect it like a password.
 
+Use one stable, explicit profile name for the whole workflow. If the caller does not provide one, choose a descriptive name once (for example, `wp-local`) and reuse it for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`. Do not infer a different profile from the hostname, workspace, or login form. If a command reports `AUTH_REQUIRED`, follow the authentication recovery workflow below before retrying the original read-only command.
+
+`snapshot-editor` is a WordPress Inspector command ; use the WordPress Inspector commands for Gutenberg-specific snapshots and use Web Inspector directly for generic page captures.
+
+## Standard editor workflow
+
+For an editor check or snapshot:
+
+1. Choose one profile name and keep it unchanged for every command in this workflow.
+2. Ensure that profile is declared in the Web Inspector config. If no config exists, create a minimal config at the selected config path before launching the browser; do not place profile state in the repository, output directory, or screenshots directory.
+3. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, `--profile`, and (when used) `--config`.
+4. If the result is `AUTH_REQUIRED`, do not merely tell the user to log in: launch `authenticate` visibly with the same base URL, profile, and config. Tell the user that the dedicated login window is open, ask them to sign in and select **Remember Me** when offered, and tell them to close the window when finished. Wait for the interactive command and its read-only probe to complete, then rerun the original command with the same profile.
+5. Treat `AUTHENTICATED` or `EDITOR_SNAPSHOT_CAPTURED` as the successful authentication/snapshot result. Report any other classification and its diagnostics without attempting mutation.
+
 
 ## retrieve post ID from frontend url
 
@@ -63,12 +77,13 @@ node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
   --profile wp-local \
   --config ~/.config/web-inspector/config.json \
+  --headed \
   --timeout 300000
 ```
 
-Sign in only in the visible dedicated window, then close it. If the WordPress login form offers **Remember Me**, select it. An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it. The command follows the session with a read-only wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headless` with `authenticate` only to receive an explicit error; automated credential bootstrap is intentionally not part of the MVP.
-
-The profile must be explicit. Do not infer it from a hostname, workspace, WordPress site, or login form. For local multisite work, use the exact authorized site URL, including its port and path. A network login does not imply that every child host is authenticated.
+After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Do not ask for or enter credentials yourself. Continue only after the browser has closed and this command's read-only probe has completed.
+An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
+The command follows the session with a read-only wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headed` to allow showing the actual browser. Use `--headless` with `authenticate` only to receive an explicit error; automated credential bootstrap is intentionally not part of the MVP.
 
 ## Read-only checks
 
