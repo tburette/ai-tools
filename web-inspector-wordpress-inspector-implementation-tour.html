@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Inspector and WordPress Inspector — implementation tour</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #fffdf8;
+      --ink: #1d2830;
+      --muted: #52616b;
+      --line: #d8dee2;
+      --accent: #0f6b5c;
+      --accent-soft: #e2f0ec;
+      --code: #f1f4f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #edf1f2;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1040px;
+      margin: 2rem auto;
+      padding: 3rem clamp(1.25rem, 5vw, 4.5rem);
+      background: var(--paper);
+      box-shadow: 0 12px 42px rgb(24 44 52 / 12%);
+    }
+    header {
+      padding-bottom: 1.75rem;
+      margin-bottom: 2.25rem;
+      border-bottom: 4px solid var(--accent);
+    }
+    h1, h2, h3 { line-height: 1.16; }
+    h1 { margin: 0 0 .7rem; font-size: clamp(2rem, 5vw, 3.55rem); letter-spacing: -.045em; }
+    h2 { margin-top: 3rem; padding-top: .35rem; font-size: 1.65rem; }
+    h3 { margin-top: 2rem; font-size: 1.15rem; }
+    p, li { max-width: 82ch; }
+    .lede { font-size: 1.18rem; color: var(--muted); }
+    .meta { color: var(--muted); font-size: .94rem; }
+    .callout {
+      margin: 1.4rem 0;
+      padding: 1rem 1.15rem;
+      border-left: .35rem solid var(--accent);
+      background: var(--accent-soft);
+    }
+    code {
+      padding: .1rem .28rem;
+      background: var(--code);
+      border-radius: .2rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .9em;
+    }
+    pre {
+      overflow: auto;
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--line);
+      background: #172027;
+      color: #edf7f4;
+      border-radius: .35rem;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { padding: .7rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #eef4f2; }
+    a { color: #075fbd; }
+    .toc { columns: 2 18rem; gap: 2rem; padding-left: 1.2rem; }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper: #172027; --ink: #edf3f5; --muted: #b3c1c7; --line: #43525a; --accent: #69c5ac; --accent-soft: #1e3d39; --code: #29363d; }
+      body { background: #0e1519; }
+      main { box-shadow: none; }
+      th { background: #203038; }
+      a { color: #7dbfff; }
+    }
+    @media print {
+      body { background: white; }
+      main { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Web Inspector and WordPress Inspector</h1>
+      <p class="lede">A practical tour of the completed persistent-profile and read-only WordPress/Gutenberg inspection work.</p>
+      <p class="meta">Implemented and validated on 2026-08-16 · Markdown source: <a href="web-inspector-wordpress-inspector-implementation-tour.md">implementation tour</a></p>
+    </header>
+
+    <nav aria-label="Contents">
+      <h2>Contents</h2>
+      <ol class="toc">
+        <li><a href="#overview">What is now available</a></li>
+        <li><a href="#operators">For users and agents</a></li>
+        <li><a href="#technical">Technical design</a></li>
+        <li><a href="#files">Implementation tour</a></li>
+        <li><a href="#validation">Validation</a></li>
+        <li><a href="#local">Local WordPress integration</a></li>
+        <li><a href="#limits">Limits and deferred work</a></li>
+      </ol>
+    </nav>
+
+    <section id="overview">
+      <h2>What is now available</h2>
+      <p>There are now two independently usable skills. <strong>Web Inspector</strong> remains a generic Playwright renderer and interaction harness, but it now supports explicit persistent Chromium profiles, configuration, headed sessions, and two new generic actions. <strong>WordPress Inspector</strong> is a new read-only adapter that uses Web Inspector to inspect an authenticated WordPress admin area and Gutenberg editor.</p>
+      <div class="callout">The boundary is intentional: browser mechanics remain generic in Web Inspector; WordPress URLs, selectors, classifications, and safety rules live in WordPress Inspector.</div>
+    </section>
+
+    <section id="operators">
+      <h2>For users and agents</h2>
+      <h3>Existing Web Inspector captures are unchanged</h3>
+      <p>Normal no-profile captures stay headless and ephemeral. Each viewport gets a fresh browser context and no state survives exit.</p>
+      <pre><code>cd web-inspector
+node scripts/capture_page.mjs http://localhost:3000/ \
+  --viewport 1440x1100 \
+  --output-dir /tmp/web-inspector/page</code></pre>
+      <p>The usual screenshots and <code>report.json</code> are produced. Reports now also include <code>headed</code>, <code>profile</code>, and <code>persistentContext</code>.</p>
+
+      <h3>Persistent login state is deliberate</h3>
+      <p>Declare a Chromium profile in versioned configuration, then request it explicitly. The tool never infers a profile from a hostname, repository, or login page.</p>
+      <pre><code>{
+  "version": 1,
+  "defaults": { "headed": false },
+  "profiles": { "wp-local": { "browser": "chromium" } }
+}</code></pre>
+      <pre><code>node scripts/capture_page.mjs http://example.test:8888/ \
+  --profile wp-local \
+  --config ~/.config/web-inspector/config.json \
+  --output-dir /tmp/web-inspector/profile-check</code></pre>
+
+      <h3>Authenticate interactively, never on the command line</h3>
+      <pre><code>cd wordpress-inspector
+node scripts/wordpress_inspector.mjs authenticate \
+  --base-url http://example.test:8888 \
+  --profile wp-local \
+  --config ~/.config/web-inspector/config.json</code></pre>
+      <p>This opens a dedicated visible Chromium window. An operator signs in there, closes it, and the command runs a read-only admin probe. It never accepts credentials as options, config, report fields, or process arguments.</p>
+
+      <h3>Inspect WordPress without mutation</h3>
+      <pre><code>node scripts/wordpress_inspector.mjs check-admin \
+  --base-url http://example.test:8888 \
+  --profile wp-local \
+  --config ~/.config/web-inspector/config.json \
+  --output-dir /tmp/wordpress-inspector/admin
+
+node scripts/wordpress_inspector.mjs check-editor \
+  --base-url http://example.test:8888 \
+  --profile wp-local \
+  --editor-url 'http://example.test:8888/wp-admin/post.php?post=123&amp;action=edit' \
+  --output-dir /tmp/wordpress-inspector/editor</code></pre>
+      <p>Each run produces a concise <code>wordpress-summary.json</code>, the generic <code>report.json</code>, and screenshots. Expected classifications include <code>AUTHENTICATED</code>, <code>AUTH_REQUIRED</code>, <code>EDITOR_INVALID_BLOCKS</code>, and <code>TECHNICAL_ERRORS</code>.</p>
+
+      <h3>Two generic actions were added</h3>
+      <table>
+        <thead><tr><th>Action</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td><code>assertNotVisible</code></td><td>Fails when any matching element is visible during a short assertion window (250 ms by default).</td></tr>
+          <tr><td><code>clickIfVisible</code></td><td>Clicks the first visible match and reports <code>clicked: true</code>; otherwise reports <code>clicked: false</code>.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="technical">
+      <h2>Technical design</h2>
+      <h3>Configuration and state</h3>
+      <p>Configuration precedence is <code>--config</code>, <code>WEB_INSPECTOR_CONFIG</code>, <code>${XDG_CONFIG_HOME}/web-inspector/config.json</code>, then <code>~/.config/web-inspector/config.json</code>. A missing file uses safe defaults; malformed configuration and undeclared profiles fail explicitly.</p>
+      <p>State precedence is <code>WEB_INSPECTOR_STATE_DIR</code>, <code>${XDG_STATE_HOME}/web-inspector/profiles</code>, then <code>~/.local/state/web-inspector/profiles</code>. Profile directories are owner-only where supported, symlinked directories are rejected, and lock errors are normalized without leaking paths.</p>
+
+      <h3>Browser lifecycle</h3>
+      <ul>
+        <li>No profile: fresh ephemeral context per viewport.</li>
+        <li>Named profile: one persistent Chromium context, reused for the run and flushed on close.</li>
+        <li>Firefox: supported for ephemeral captures only.</li>
+      </ul>
+      <p>Persistent browser state can include cookies, local storage, IndexedDB, and session state. It is a bearer credential and never belongs in a repository or ordinary temporary output directory.</p>
+
+      <h3>WordPress classification and safety</h3>
+      <p>WordPress Inspector first runs a short structural authentication probe. It can quickly return <code>AUTH_REQUIRED</code> without waiting through editor readiness timeouts. It separately records browser diagnostics, filtering expected action-failure entries so they do not become false technical errors.</p>
+      <p>Editor URLs are constrained to a same-origin, supported read-only route: <code>post.php?action=edit&amp;post=&lt;positive-id&gt;</code> or <code>site-editor.php</code> without an action parameter. Cross-origin URLs, arbitrary admin routes, mutation endpoints, and duplicate action/post query parameters are rejected.</p>
+      <p>The adapter does not save, publish, trash, upload, install, activate, reset, or submit credentials. It may only dismiss a close control scoped to a known Gutenberg welcome guide.</p>
+
+      <h3>Runtime and installation</h3>
+      <p>WordPress Inspector invokes Web Inspector with <code>process.execPath</code> and argument arrays. In this source checkout it uses the sibling skill; a separately installed copy can set <code>WEB_INSPECTOR_SKILL_DIR</code>. Playwright is discovered from existing installations only—no npm install or browser download occurs implicitly. Headed sessions require a graphical display.</p>
+    </section>
+
+    <section id="files">
+      <h2>Implementation tour by file</h2>
+      <table>
+        <thead><tr><th>Location</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><a href="AGENTS.md">AGENTS.md</a></td><td>Repository map, source-of-truth rules, installation approval, validation, and sensitive-artifact guidance.</td></tr>
+          <tr><td><a href="web-inspector/SKILL.md">web-inspector/SKILL.md</a></td><td>Operator documentation for profiles, headed sessions, actions, safety, and validation.</td></tr>
+          <tr><td><a href="web-inspector/scripts/capture_page.mjs">capture_page.mjs</a></td><td>Generic runner extended with config/profile options, persistent contexts, reports, and new actions.</td></tr>
+          <tr><td><a href="web-inspector/scripts/open_profile.mjs">open_profile.mjs</a></td><td>Visible, content-agnostic persistent Chromium setup session.</td></tr>
+          <tr><td><a href="web-inspector/scripts/lib/config.mjs">config.mjs</a></td><td>Schema validation, precedence, profile-name validation, and config/state paths.</td></tr>
+          <tr><td><a href="web-inspector/scripts/lib/profiles.mjs">profiles.mjs</a></td><td>Owner-only state, symlink rejection, and lock handling.</td></tr>
+          <tr><td><a href="web-inspector/scripts/lib/playwright.mjs">playwright.mjs</a></td><td>Shared Playwright/executable resolution, local mapping, profile args, and display checks.</td></tr>
+          <tr><td><a href="web-inspector/scripts/config_smoke_test.mjs">config smoke test</a> and <a href="web-inspector/scripts/profile_smoke_test.mjs">profile smoke test</a></td><td>Configuration, persistence, isolation, security, and redaction coverage.</td></tr>
+          <tr><td><a href="wordpress-inspector/SKILL.md">wordpress-inspector/SKILL.md</a></td><td>Read-only WordPress workflow, installation, safety, classifications, and validation.</td></tr>
+          <tr><td><a href="wordpress-inspector/agents/openai.yaml">agents/openai.yaml</a></td><td>Codex metadata for the new skill.</td></tr>
+          <tr><td><a href="wordpress-inspector/scripts/wordpress_inspector.mjs">wordpress_inspector.mjs</a></td><td>Authentication, admin/editor checks, probes, classifications, summaries, and route enforcement.</td></tr>
+          <tr><td><a href="wordpress-inspector/scripts/lib/web_inspector_process.mjs">web_inspector_process.mjs</a></td><td>Safe child-process composition and generic-report collection.</td></tr>
+          <tr><td><a href="wordpress-inspector/scripts/lib/wordpress.mjs">wordpress.mjs</a></td><td>WordPress URL rules, selectors, diagnostics filtering, and summary structure.</td></tr>
+          <tr><td><a href="wordpress-inspector/scripts/smoke_test.mjs">WordPress smoke test</a></td><td>Fixtures for auth, onboarding, invalid/fatal/technical states, route safety, redaction, and no mutation requests.</td></tr>
+          <tr><td><a href="web-inspector-wordpress-inspector-implementation-plan.md">Implementation plan</a></td><td>Original design and acceptance record, updated with implementation status.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="validation">
+      <h2>Validation completed</h2>
+      <pre><code>find web-inspector wordpress-inspector -name '*.mjs' -print0 | xargs -0 -n1 node --check
+git diff --check
+
+cd web-inspector
+node scripts/config_smoke_test.mjs
+node scripts/profile_smoke_test.mjs
+node scripts/smoke_test.mjs
+WEB_INSPECTOR_BROWSER=firefox node scripts/smoke_test.mjs
+
+cd ../wordpress-inspector
+node scripts/smoke_test.mjs</code></pre>
+      <p>All checks passed. A subagent review was also completed, and its findings were incorporated: inherited profile lookup, config forwarding, permissions, auth-ordering, selector false positives, delayed/duplicate assertions, technical diagnostics, report failure handling, and editor-route safety.</p>
+    </section>
+
+    <section id="local">
+      <h2>Authorized local WordPress integration</h2>
+      <ul>
+        <li>The authorized network site’s admin check passed with <code>AUTHENTICATED</code>.</li>
+        <li>The Home editor and existing all-patterns review page both passed with <code>AUTHENTICATED</code>.</li>
+        <li>Each check returned HTTP 200, produced an inspected screenshot, and reported no console/page/request/response errors.</li>
+        <li>No mutation controls were exercised. A repeat all-patterns check left the observed post modification timestamp unchanged.</li>
+      </ul>
+      <p>The local environment was started through its authorized command, but no files in that project were edited. Child/farm subsites were intentionally excluded from the authorized scope.</p>
+    </section>
+
+    <section id="limits">
+      <h2>Limits and intentionally deferred work</h2>
+      <ul>
+        <li>No persistent Firefox profile, automatic profile selection, credential vault, automatic reauthentication, or profile deletion command.</li>
+        <li>No automatic resolution of WordPress posts, slugs, templates, or project-specific targets; callers provide an allowed editor URL.</li>
+        <li>No mutation testing, full accessibility auditing, visual diffs, video recording, or network mocking.</li>
+        <li>Multisite authentication remains host-specific: authenticate and check each separately authorized host explicitly.</li>
+        <li>Screenshots and reports may contain private admin information; keep them protected and out of commits.</li>
+      </ul>
+      <p>For day-to-day browser work, read <a href="web-inspector/SKILL.md">Web Inspector</a>. For authorized WordPress administration and Gutenberg checks, read <a href="wordpress-inspector/SKILL.md">WordPress Inspector</a>.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -17,11 +17,18 @@ function pageFor(pathname) {
     : pathname === "/error"
       ? "console.error('smoke error')"
       : "";
+  const delayed = pathname === "/delayed"
+    ? "setTimeout(() => { document.querySelector('#delayed').hidden = false; }, 100)"
+    : "";
+  const duplicate = pathname === "/duplicate"
+    ? "<p id=\"duplicate\" hidden>Hidden duplicate</p><p id=\"duplicate\">Visible duplicate</p>"
+    : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web Inspector smoke test</title></head>
-<body><main><h1>Smoke test</h1><button id="open">Open</button><p id="message" hidden>Ready</p></main>
+<body><main><h1>Smoke test</h1><button id="open">Open</button><p id="message" hidden>Ready</p><p id="delayed" hidden>Late warning</p>${duplicate}</main>
 <script>
 ${diagnostic}
+${delayed}
 document.querySelector('#open').addEventListener('click', () => {
   document.querySelector('#message').hidden = false;
 });
@@ -89,6 +96,9 @@ try {
   assert.equal(warningReport.options.localMap, true);
   assert.equal(warningReport.options.ignoreHttpsErrors, false);
   assert.equal(warningReport.options.failOnErrors, true);
+  assert.equal(warningReport.options.headed, false);
+  assert.equal(warningReport.options.profile, null);
+  assert.equal(warningReport.options.persistentContext, false);
   assert.equal(warningReport.viewports[0].console[0]?.type, "warning");
 
   const defaultDeviceDir = path.join(outputRoot, "default-device");
@@ -116,6 +126,30 @@ try {
   const errorReport = await readReport(errorDir);
   assert.equal(errorReport.viewports[0].console[0]?.type, "error");
 
+  const delayedDir = path.join(outputRoot, "delayed-assertion");
+  const delayedRun = await runCapture(`${baseUrl}/delayed`, [
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--action", JSON.stringify({ type: "assertNotVisible", selector: "#delayed", windowMs: 250 }),
+    "--fail-on-errors",
+    "--output-dir", delayedDir,
+  ]);
+  assert.equal(delayedRun.code, 1, delayedRun.stderr || delayedRun.stdout);
+  const delayedReport = await readReport(delayedDir);
+  assert.match(delayedReport.viewports[0].actionResults[0].error, /Expected no visible element/);
+
+  const duplicateDir = path.join(outputRoot, "duplicate-assertion");
+  const duplicateRun = await runCapture(`${baseUrl}/duplicate`, [
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--action", JSON.stringify({ type: "assertNotVisible", selector: "#duplicate", windowMs: 50 }),
+    "--fail-on-errors",
+    "--output-dir", duplicateDir,
+  ]);
+  assert.equal(duplicateRun.code, 1, duplicateRun.stderr || duplicateRun.stdout);
+  const duplicateReport = await readReport(duplicateDir);
+  assert.match(duplicateReport.viewports[0].actionResults[0].error, /Expected no visible element/);
+
   const actionDir = path.join(outputRoot, "actions");
   const actionRun = await runCapture(`${baseUrl}/`, [
     "--viewport", "320x240",
@@ -123,14 +157,19 @@ try {
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
     "--action", JSON.stringify({ type: "assertVisible", selector: "#open" }),
+    "--action", JSON.stringify({ type: "assertNotVisible", selector: "#message" }),
+    "--action", JSON.stringify({ type: "clickIfVisible", selector: "#message" }),
     "--action", JSON.stringify({ type: "click", selector: "#open" }),
+    "--action", JSON.stringify({ type: "clickIfVisible", selector: "#open" }),
     "--action", JSON.stringify({ type: "assertText", selector: "#message", text: "Ready" }),
     "--output-dir", actionDir,
   ]);
   assert.equal(actionRun.code, 0, actionRun.stderr || actionRun.stdout);
   const actionReport = await readReport(actionDir);
   assert.equal(actionReport.options.device, "Pixel 5");
-  assert.deepEqual(actionReport.viewports[0].actionResults.map(({ type }) => type), ["assertVisible", "click", "assertText"]);
+  assert.deepEqual(actionReport.viewports[0].actionResults.map(({ type }) => type), ["assertVisible", "assertNotVisible", "clickIfVisible", "click", "clickIfVisible", "assertText"]);
+  assert.equal(actionReport.viewports[0].actionResults[2].clicked, false);
+  assert.equal(actionReport.viewports[0].actionResults[4].clicked, true);
   assert.ok(actionReport.viewports[0].screenshot.endsWith("320x240.png"));
   assert.match(actionReport.viewports[0].runtime.userAgent, /Android/);
   if (browser === "chromium") assert.ok(actionReport.viewports[0].runtime.maxTouchPoints > 0);

@@ -1,0 +1,4 @@
+interface:
+  display_name: "WordPress Inspector"
+  short_description: "Inspect WordPress admin and Gutenberg read-only"
+  default_prompt: "Use $wordpress-inspector to inspect this authorized WordPress admin or Gutenberg editor without mutating site data."

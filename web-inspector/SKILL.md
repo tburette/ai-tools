@@ -56,6 +56,45 @@ The runner supports the following workflows. Script paths below are relative to 
 
 It is a rendering and interaction harness, not a full accessibility auditor, pixel-diff engine, network mocking system, or video recorder. Add a dedicated check or script when one of those is required.
 
+## Persistent profiles and headed sessions
+
+Normal captures remain headless and ephemeral. Opt into a dedicated persistent Chromium profile explicitly:
+
+```bash
+node scripts/capture_page.mjs http://localhost:3000/ \
+  --profile lpu-local \
+  --config ~/.config/web-inspector/config.json \
+  --output-dir /tmp/web-inspector/profile-check
+```
+
+The profile must be declared in the versioned JSON configuration before use:
+
+```json
+{
+  "version": 1,
+  "defaults": { "headed": false },
+  "profiles": {
+    "lpu-local": { "browser": "chromium" }
+  }
+}
+```
+
+Configuration is resolved in this order: `--config`, `WEB_INSPECTOR_CONFIG`, `${XDG_CONFIG_HOME}/web-inspector/config.json`, then `~/.config/web-inspector/config.json`. A missing file uses built-in headless defaults; malformed or unsupported configuration fails with an actionable error. `--headed` and `--headless` override `defaults.headed` and cannot be combined.
+
+Profile state is resolved in this order: `WEB_INSPECTOR_STATE_DIR`, `${XDG_STATE_HOME}/web-inspector/profiles`, then `~/.local/state/web-inspector/profiles`. State is stored in a dedicated owner-only directory and is never placed in the repository, output directory, or `/tmp` by default. A profile name is an identifier, not a filesystem path. Persistent profiles are Chromium-only in this version; `--browser firefox --profile <name>` fails before launch.
+
+Persistent mode retains cookies, local storage, IndexedDB, and other browser state across invocations and across requested viewports. It never imports the user's regular browser profile. Treat a persistent profile as a bearer credential: protect it like a password, do not commit it, and do not print its path or contents in reports. Reports record only the profile name and `persistentContext: true`. Without `--profile`, the runner keeps the existing fresh-context-per-viewport isolation.
+
+For one-time interactive setup, use the generic visible session command:
+
+```bash
+node scripts/open_profile.mjs http://localhost:3000/ \
+  --profile lpu-local \
+  --timeout 300000
+```
+
+The command always launches a visible dedicated Chromium window, waits for the operator to close it (or for the optional timeout), and never attempts to detect login success or handle credentials. It requires a usable `DISPLAY` or `WAYLAND_DISPLAY` on Linux and does not install a browser or start a virtual display.
+
 ## First-run runtime setup
 
 Before any capture, resolve an existing Playwright package and browser runtime. The runner performs this preflight automatically in the following order:
@@ -172,7 +211,9 @@ Use a Playwright selector such as a CSS selector, `text=...`, or `role=...`. For
 | `scroll` | `{"type":"scroll","x":0,"y":800}` | Scroll the page to the given document coordinates. Omitted coordinates default to zero. This currently scrolls the page, not a nested scroll container. |
 | `wait` | `{"type":"wait","ms":500}` | Pause for the given number of milliseconds. The default is 300 ms when `ms` is omitted. Prefer assertions when a specific state can be checked. |
 | `assertVisible` | `{"type":"assertVisible","selector":"..."}` | Wait until the first matching element is visible. A timeout is recorded as an action failure. |
+| `assertNotVisible` | `{"type":"assertNotVisible","selector":"..."}` | Succeed when no matching element is visible during the short assertion window (250 ms by default); fail when any match becomes visible. Set `windowMs` for a different window. |
 | `assertText` | `{"type":"assertText","selector":"...","text":"Paris"}` | Read the first matching element’s `innerText` and require it to contain `text`. `value` is accepted as an alias for `text`. |
+| `clickIfVisible` | `{"type":"clickIfVisible","selector":"..."}` | Click the first matching visible element when present; otherwise succeed with `clicked: false`. |
 | `screenshot` | `{"type":"screenshot","name":"menu-open","fullPage":false}` | Save a PNG at the current state. `name` becomes part of the filename; `fullPage` defaults to false. |
 
 When an action fails, the runner continues to collect the screenshot and report for that viewport. Use `--fail-on-errors` when the shell command should exit non-zero for console errors, page errors, request/response errors, navigation errors, or action failures; warnings alone do not cause a non-zero exit.
@@ -188,7 +229,7 @@ The runner resolves Playwright in this order:
 - npm’s `_npx` cache;
 - normal Node module resolution.
 
-If resolution fails, report the explicit error and do not silently install dependencies. Use shell escalation for the first Chromium or Firefox launch if the outer sandbox terminates the browser before navigation. The runner uses a headless browser process and does not inspect cookies, browser profiles, local storage, or saved credentials.
+If resolution fails, report the explicit error and do not silently install dependencies. Use shell escalation for the first Chromium or Firefox launch if the outer sandbox terminates the browser before navigation. Ephemeral runs do not retain browser state. Profile runs intentionally use a dedicated persistent Chromium context; they may retain cookies and storage in that named profile, but the runner never prints or summarizes those values.
 
 For local `localhost` or `*.test` URLs, the runner maps the hostname to `127.0.0.1` by default so local development sites work consistently in isolated environments. Disable that behavior with `--no-local-map` when the host must resolve normally.
 
@@ -218,8 +259,23 @@ node scripts/smoke_test.mjs
 
 Run the same smoke test against Firefox with `WEB_INSPECTOR_BROWSER=firefox node scripts/smoke_test.mjs`.
 
+Run the focused configuration and persistence checks as well:
+
+```bash
+node scripts/config_smoke_test.mjs
+node scripts/profile_smoke_test.mjs
+```
+
+The profile smoke test uses temporary configuration, state, output, and localhost fixtures. It proves cross-process persistence, separate-profile and ephemeral isolation, viewport reporting, unknown-profile rejection, Firefox rejection, and that cookie values do not enter reports or stdout.
+
 As with the runner, set `PLAYWRIGHT_PACKAGE` to an existing Playwright installation when it is not available through normal Node resolution. The smoke test creates and removes its own temporary output and local HTTP server.
 
 ## Resources
 
 - `scripts/capture_page.mjs` — deterministic renderer, action runner, screenshot capture, and diagnostics report.
+- `scripts/open_profile.mjs` — visible, content-agnostic persistent Chromium profile setup session.
+- `scripts/lib/config.mjs` — versioned configuration discovery, validation, and option precedence.
+- `scripts/lib/profiles.mjs` — owner-only profile directory preparation and launch-error handling.
+- `scripts/lib/playwright.mjs` — shared Playwright discovery, browser executable resolution, and local display helpers.
+- `scripts/config_smoke_test.mjs` — configuration and precedence regression checks.
+- `scripts/profile_smoke_test.mjs` — cross-process persistence and isolation regression checks.

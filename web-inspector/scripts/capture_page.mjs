@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-
-const skillDir = path.dirname(fileURLToPath(import.meta.url));
+import path from "node:path";
+import { resolveExecutionOptions, validateProfileName } from "./lib/config.mjs";
+import { prepareProfileDirectory, profileLaunchError } from "./lib/profiles.mjs";
+import {
+  assertHeadedEnvironment,
+  localLaunchArgs,
+  persistentProfileArgs,
+  resolveExecutablePath,
+  resolvePlaywright,
+} from "./lib/playwright.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
@@ -16,7 +20,11 @@ function usage(message) {
 Options:
   --browser <name>                Browser engine: chromium or firefox (default: chromium)
   --viewport <width>x<height>     Repeat for multiple viewports (default: 1440x1100)
-  --device <name>                Emulate a Playwright device, e.g. "Pixel 5"
+  --device <name>                 Emulate a Playwright device, e.g. "Pixel 5"
+  --profile <name>                Use a declared persistent Chromium profile
+  --config <path>                 Read generic Web Inspector configuration from this path
+  --headed                        Launch with a visible browser window
+  --headless                      Force headless mode
   --full-page                    Capture the full scrollable page
   --output-dir <path>             Output directory (default: /tmp/web-inspector/<timestamp>)
   --action <json>                 Repeatable interaction action
@@ -44,23 +52,30 @@ function parseViewport(value) {
 function parseArgs(argv) {
   const options = {
     browser: "chromium",
+    browserExplicit: false,
     viewports: [],
     actions: [],
     fullPage: false,
     outputDir: path.join(os.tmpdir(), "web-inspector", new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")),
     device: null,
+    profile: null,
+    configPath: null,
+    headedOverride: null,
     waitUntil: "networkidle",
     waitMs: 300,
     timeout: 30000,
     localMap: true,
     failOnErrors: false,
     ignoreHttpsErrors: false,
+    executablePath: null,
   };
   const positional = [];
   const valueOptions = new Set([
     "browser",
     "viewport",
     "device",
+    "profile",
+    "config",
     "output-dir",
     "action",
     "wait-until",
@@ -81,13 +96,23 @@ function parseArgs(argv) {
     else if (key === "no-local-map") options.localMap = false;
     else if (key === "fail-on-errors") options.failOnErrors = true;
     else if (key === "ignore-https-errors") options.ignoreHttpsErrors = true;
-    else if (valueOptions.has(key)) {
+    else if (key === "headed" || key === "headless") {
+      const headed = key === "headed";
+      if (options.headedOverride !== null && options.headedOverride !== headed) {
+        throw new Error("--headed and --headless are mutually exclusive");
+      }
+      options.headedOverride = headed;
+    } else if (valueOptions.has(key)) {
       const value = argv[index + 1];
       if (value == null || value.startsWith("--")) throw new Error(`Missing value for --${key}`);
       index += 1;
-      if (key === "browser") options.browser = value;
-      else if (key === "viewport") options.viewports.push(parseViewport(value));
+      if (key === "browser") {
+        options.browser = value;
+        options.browserExplicit = true;
+      } else if (key === "viewport") options.viewports.push(parseViewport(value));
       else if (key === "device") options.device = value;
+      else if (key === "profile") options.profile = validateProfileName(value);
+      else if (key === "config") options.configPath = value;
       else if (key === "action") options.actions.push(JSON.parse(value));
       else if (key === "wait-ms") options.waitMs = Number(value);
       else if (key === "timeout") options.timeout = Number(value);
@@ -106,171 +131,16 @@ function parseArgs(argv) {
   return { url: positional[0], ...options };
 }
 
-function addCandidate(candidates, seen, candidate) {
-  if (!candidate || seen.has(candidate)) return;
-  seen.add(candidate);
-  candidates.push(candidate);
-}
-
-function addPackageRoot(candidates, seen, root) {
-  if (!root) return;
-  const packagePath = path.join(root, "playwright");
-  if (fsSync.existsSync(path.join(packagePath, "package.json"))) {
-    addCandidate(candidates, seen, packagePath);
-  }
-}
-
-function addNestedPackageRoots(candidates, seen, parent, suffix) {
-  try {
-    for (const entry of fsSync.readdirSync(parent, { withFileTypes: true })) {
-      if (entry.isDirectory()) addPackageRoot(candidates, seen, path.join(parent, entry.name, ...suffix));
-    }
-  } catch {
-    // Optional cache directories may not exist or may not be readable.
-  }
-}
-
-function resolvePlaywright() {
-  const candidates = [];
-  const seen = new Set();
-  if (process.env.PLAYWRIGHT_PACKAGE) addCandidate(candidates, seen, process.env.PLAYWRIGHT_PACKAGE);
-
-  const cwdRequire = createRequire(path.join(process.cwd(), "__visual_web_qa__.cjs"));
-  const scriptRequire = createRequire(path.join(skillDir, "__visual_web_qa__.cjs"));
-  for (const resolver of [cwdRequire, scriptRequire]) {
-    try {
-      addCandidate(candidates, seen, resolver.resolve("playwright"));
-    } catch {
-      // Try the next resolution strategy.
-    }
-  }
-  addCandidate(candidates, seen, "playwright");
-
-  // Cover global Node installs without spawning npm, which may be blocked in a
-  // restricted shell. This is the usual <node-prefix>/lib/node_modules path.
-  const nodePrefix = path.dirname(path.dirname(process.execPath));
-  const globalRoots = [
-    ...String(process.env.NODE_PATH ?? "").split(path.delimiter).filter(Boolean),
-    path.join(nodePrefix, "lib", "node_modules"),
-  ];
-  for (const root of globalRoots) addPackageRoot(candidates, seen, root);
-
-  // Codex and npm may keep a usable Playwright package outside the project.
-  addNestedPackageRoots(candidates, seen, path.join(os.homedir(), ".cache", "codex-runtimes"), ["dependencies", "node", "node_modules"]);
-  addNestedPackageRoots(candidates, seen, path.join(os.homedir(), ".npm", "_npx"), ["node_modules"]);
-
-  const errors = [];
-  for (const candidate of candidates) {
-    try {
-      const resolver = createRequire(path.join(process.cwd(), "__visual_web_qa__.cjs"));
-      return resolver(candidate);
-    } catch (error) {
-      errors.push(`${candidate}: ${error.message}`);
-    }
-  }
-
-  throw new Error(`Could not resolve Playwright. Install it in the project or set PLAYWRIGHT_PACKAGE to an existing package. Tried:\n${errors.join("\n")}`);
-}
-
 function safeFileName(value) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "screenshot";
-}
-
-function localLaunchArgs(url, enabled) {
-  if (!enabled) return [];
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return [];
-  }
-  const host = parsed.hostname;
-  if (host === "localhost" || host.endsWith(".test")) return [`--host-resolver-rules=MAP ${host} 127.0.0.1`];
-  return [];
-}
-
-function isUsableExecutable(executablePath) {
-  try {
-    return fsSync.statSync(executablePath).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function findPlaywrightFirefoxExecutable(browserType) {
-  const preferred = browserType.executablePath();
-  if (isUsableExecutable(preferred)) return preferred;
-
-  // Playwright can be present while its exact browser revision is missing. A
-  // compatible Firefox revision already cached by the runtime is preferable to
-  // falling back to the system Snap, whose private /tmp hides Playwright's
-  // temporary profile and juggler pipe.
-  const browserRoot = path.dirname(path.dirname(path.dirname(preferred)));
-  let entries;
-  try {
-    entries = fsSync.readdirSync(browserRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^firefox-/.test(entry.name))
-      .map((entry) => entry.name)
-      .sort()
-      .reverse();
-  } catch {
-    entries = [];
-  }
-  for (const entry of entries) {
-    const candidate = path.join(browserRoot, entry, "firefox", "firefox");
-    if (isUsableExecutable(candidate)) return candidate;
-  }
-  return null;
-}
-
-function isSnapFirefoxExecutable(executablePath) {
-  const normalized = path.resolve(executablePath);
-  if (normalized === "/usr/bin/firefox" || normalized === "/snap/bin/firefox" || normalized.startsWith("/snap/firefox/")) return true;
-  try {
-    const resolved = fsSync.realpathSync(normalized);
-    if (resolved === "/usr/bin/snap" || resolved.startsWith("/snap/firefox/")) return true;
-  } catch {
-    // Let the normal executable validation or browser launch report missing paths.
-  }
-  try {
-    return fsSync.readFileSync(normalized, "utf8").includes("/snap/bin/firefox");
-  } catch {
-    return false;
-  }
-}
-
-function resolveExecutablePath(browserType, browserName, explicitPath) {
-  if (explicitPath) {
-    const executablePath = path.resolve(explicitPath);
-    if (browserName === "firefox" && isSnapFirefoxExecutable(executablePath)) {
-      throw new Error(
-        "The Firefox Snap is not supported by this Playwright runner: its private /tmp "
-          + "hides Playwright's temporary profile and juggler pipe. Omit --executable-path "
-          + "to use the cached Playwright Firefox runtime, or pass a non-Snap Firefox.",
-      );
-    }
-    return executablePath;
-  }
-  if (browserName !== "firefox") return null;
-
-  const executablePath = findPlaywrightFirefoxExecutable(browserType);
-  if (executablePath) return executablePath;
-
-  throw new Error(
-    "No usable Firefox executable was found. Install or expose a compatible "
-      + "Playwright Firefox runtime, or pass --executable-path to a non-Snap Firefox. "
-      + "The system Snap Firefox is not a safe default here because its private /tmp "
-      + "hides Playwright's temporary profile and juggler pipe.",
-  );
 }
 
 async function runAction(page, action, outputDir, index, viewport) {
   if (!action || typeof action !== "object") throw new Error(`Action ${index + 1} must be a JSON object`);
   const type = action.type;
   const selector = action.selector;
-  if (["click", "fill", "type", "hover", "press", "select", "assertVisible", "assertText"].includes(type) && !selector) {
-    throw new Error(`Action ${index + 1} (${type}) requires selector`);
-  }
+  const selectorActions = ["click", "fill", "type", "hover", "press", "select", "assertVisible", "assertNotVisible", "assertText", "clickIfVisible"];
+  if (selectorActions.includes(type) && !selector) throw new Error(`Action ${index + 1} (${type}) requires selector`);
 
   if (type === "click") await page.locator(selector).first().click();
   else if (type === "fill") await page.locator(selector).first().fill(String(action.value ?? ""));
@@ -281,7 +151,37 @@ async function runAction(page, action, outputDir, index, viewport) {
   else if (type === "scroll") await page.evaluate(({ x, y }) => window.scrollTo(x ?? 0, y ?? 0), { x: action.x, y: action.y });
   else if (type === "wait") await page.waitForTimeout(Number(action.ms ?? 300));
   else if (type === "assertVisible") await page.locator(selector).first().waitFor({ state: "visible" });
-  else if (type === "assertText") {
+  else if (type === "assertNotVisible") {
+    const matches = page.locator(selector);
+    const assertionWindowMs = Number(action.windowMs ?? 250);
+    if (!Number.isFinite(assertionWindowMs) || assertionWindowMs < 0) {
+      throw new Error(`Action ${index + 1} (assertNotVisible) windowMs must be non-negative`);
+    }
+    const deadline = Date.now() + assertionWindowMs;
+    while (true) {
+      const count = await matches.count();
+      for (let matchIndex = 0; matchIndex < count; matchIndex += 1) {
+        if (await matches.nth(matchIndex).isVisible()) {
+          throw new Error(`Expected no visible element matching ${JSON.stringify(selector)}`);
+        }
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await page.waitForTimeout(Math.min(50, remaining));
+    }
+    return { type, visible: false, windowMs: assertionWindowMs };
+  } else if (type === "clickIfVisible") {
+    const matches = page.locator(selector);
+    const count = await matches.count();
+    for (let matchIndex = 0; matchIndex < count; matchIndex += 1) {
+      const locator = matches.nth(matchIndex);
+      if (await locator.isVisible()) {
+        await locator.click();
+        return { type, clicked: true };
+      }
+    }
+    return { type, clicked: false };
+  } else if (type === "assertText") {
     const text = String(action.text ?? action.value ?? "");
     const actual = await page.locator(selector).first().innerText();
     if (!actual.includes(text)) throw new Error(`Expected ${JSON.stringify(text)} in ${JSON.stringify(actual)}`);
@@ -290,7 +190,10 @@ async function runAction(page, action, outputDir, index, viewport) {
     const filePath = path.join(outputDir, `${viewport.width}x${viewport.height}-${name}.png`);
     await page.screenshot({ path: filePath, fullPage: Boolean(action.fullPage) });
     return { type, screenshot: filePath };
-  } else if (!["click", "fill", "type", "hover", "press", "select", "scroll", "wait", "assertVisible", "assertText", "screenshot"].includes(type)) {
+  } else if (![
+    "click", "fill", "type", "hover", "press", "select", "scroll", "wait",
+    "assertVisible", "assertNotVisible", "assertText", "clickIfVisible", "screenshot",
+  ].includes(type)) {
     throw new Error(`Unsupported action type "${type}"`);
   }
   return { type };
@@ -329,7 +232,13 @@ async function collectRuntimeSummary(page) {
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const cliOptions = parseArgs(process.argv.slice(2));
+  const options = await resolveExecutionOptions(cliOptions);
+  if (options.profile && options.browser !== "chromium") {
+    throw new Error("Persistent profiles are supported only with Chromium; omit --profile for Firefox");
+  }
+  if (options.headed) assertHeadedEnvironment();
+
   const outputDir = path.resolve(options.outputDir);
   await fs.mkdir(outputDir, { recursive: true });
   const playwright = resolvePlaywright();
@@ -343,12 +252,31 @@ async function main() {
   if (!browserType?.launch) throw new Error(`Playwright does not expose the ${options.browser} browser type`);
   const executablePath = resolveExecutablePath(browserType, options.browser, options.executablePath);
   const launchArgs = options.browser === "chromium"
-    ? ["--no-sandbox", ...localLaunchArgs(options.url, options.localMap)]
+    ? ["--no-sandbox", ...(options.profile ? persistentProfileArgs() : []), ...localLaunchArgs(options.url, options.localMap)]
     : [];
-  const launchOptions = { headless: true, args: launchArgs };
+  const launchOptions = { headless: !options.headed, args: launchArgs };
   if (executablePath) launchOptions.executablePath = executablePath;
 
-  const browser = await browserType.launch(launchOptions);
+  const { defaultBrowserType: _defaultBrowserType, ...deviceContextOptions } = deviceDescriptor ?? {};
+  const contextOptions = {
+    ...deviceContextOptions,
+    viewport: options.viewports[0],
+    ignoreHTTPSErrors: options.ignoreHttpsErrors,
+  };
+  let browser = null;
+  let persistentContext = null;
+  let profileDirectory = null;
+  if (options.profile) {
+    profileDirectory = await prepareProfileDirectory(options.stateRoot, options.profile);
+    try {
+      persistentContext = await browserType.launchPersistentContext(profileDirectory, { ...launchOptions, ...contextOptions });
+    } catch (error) {
+      throw profileLaunchError(options.profile, error);
+    }
+  } else {
+    browser = await browserType.launch(launchOptions);
+  }
+
   const report = {
     url: options.url,
     outputDir,
@@ -365,6 +293,9 @@ async function main() {
       localMap: options.localMap,
       ignoreHttpsErrors: options.ignoreHttpsErrors,
       failOnErrors: options.failOnErrors,
+      headed: options.headed,
+      profile: options.profile,
+      persistentContext: Boolean(options.profile),
     },
     viewports: [],
     errors: [],
@@ -372,9 +303,11 @@ async function main() {
 
   try {
     for (const viewport of options.viewports) {
-      const { defaultBrowserType: _defaultBrowserType, ...deviceContextOptions } = deviceDescriptor ?? {};
-      const context = await browser.newContext({ ...deviceContextOptions, viewport, ignoreHTTPSErrors: options.ignoreHttpsErrors });
+      const context = persistentContext ?? await browser.newContext({ ...deviceContextOptions, viewport, ignoreHTTPSErrors: options.ignoreHttpsErrors });
       const page = await context.newPage();
+      if (persistentContext && (viewport.width !== options.viewports[0].width || viewport.height !== options.viewports[0].height)) {
+        await page.setViewportSize(viewport);
+      }
       page.setDefaultTimeout(options.timeout);
       const item = { viewport, screenshot: null, title: null, finalUrl: null, status: null, console: [], pageErrors: [], failedRequests: [], failedResponses: [], actionResults: [], navigationError: null, runtime: null, domSummary: null };
       page.on("console", (message) => {
@@ -414,10 +347,12 @@ async function main() {
       item.runtime = await collectRuntimeSummary(page).catch((error) => ({ error: String(error.message || error) }));
       item.domSummary = await collectDomSummary(page).catch((error) => ({ error: String(error.message || error) }));
       report.viewports.push(item);
-      await context.close();
+      await page.close();
+      if (!persistentContext) await context.close();
     }
   } finally {
-    await browser.close();
+    if (persistentContext) await persistentContext.close();
+    else if (browser) await browser.close();
   }
 
   report.finishedAt = new Date().toISOString();

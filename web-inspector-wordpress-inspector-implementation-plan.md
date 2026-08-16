@@ -1,7 +1,7 @@
 # Web Inspector profiles and WordPress Inspector — implementation plan
 
-**Status:** planning only; no implementation has started  
-**Last updated:** 2026-08-15  
+**Status:** MVP implemented; local network-site verification completed; child-site verification and release/installation work remain intentionally unverified
+**Last updated:** 2026-08-16
 **Repository:** `/home/tburette/dev/ai/ai-tools`  
 **Primary existing component:** `web-inspector/`  
 **Planned new component:** `wordpress-inspector/`
@@ -12,7 +12,7 @@ This document is the handoff specification for adding persistent browser session
 
 The intended reader is a competent developer who has not participated in the design discussion. They should be able to understand the current code, the agreed component boundaries, the public interfaces to build, the security constraints, the required tests, and the order of implementation without reconstructing decisions from chat history.
 
-This is deliberately an implementation plan rather than a code patch. Do not start the WordPress-specific work until the generic Web Inspector profile work is complete and validated.
+This document remains the design and acceptance record for the implementation. The generic Web Inspector profile work and the read-only WordPress adapter are now implemented; the status line and phase notes identify the remaining intentionally unverified work.
 
 ## 2. Executive summary
 
@@ -549,7 +549,7 @@ The MVP accepts an explicit editor URL, for example a `post.php?...&action=edit`
 --editor-url <url>
 ```
 
-Validate that the editor URL has an origin allowed by `--base-url`. Reject cross-origin editor URLs.
+Validate that the editor URL has an origin allowed by `--base-url` and targets a supported read-only Gutenberg route (`post.php?action=edit&post=<positive-id>` or `site-editor.php`). Reject cross-origin URLs and arbitrary same-origin admin/mutation endpoints.
 
 Checks:
 
@@ -561,7 +561,7 @@ Checks:
 6. Record console errors, page errors, failed requests, failed HTTP responses, action failures, final URL, screenshot, and DOM summary.
 7. Never click Save, Publish, Update, Trash, Upload, Install, Activate, or similar mutation controls.
 
-Selectors must be version-aware and locale-resistant. Use CSS classes, roles, data attributes, and stable editor structure before visible strings. When translated strings are unavoidable, support at least English and French in one documented selector set.
+Selectors must be version-aware and locale-resistant. Use CSS classes, roles, data attributes, and stable editor structure before visible strings. When translated strings are unavoidable, support at least English and French in one documented selector set. Run a short structural authentication probe before shell/canvas assertions so a login screen is classified without waiting through editor readiness timeouts.
 
 ### 9.8 Gutenberg-specific checks
 
@@ -797,6 +797,8 @@ Tasks:
 - Check at least one farm subsite and authenticate that host separately if WordPress cookie scope requires it.
 - Inspect every screenshot and underlying report.
 
+Implementation status: the authorized local network site was checked for the admin shell, the Home editor, and the existing all-patterns review page. The separate farm-subsite checks were intentionally skipped because the operator requested staying on the network site; no production/staging or child-site credentials were used.
+
 Validation:
 
 - The editor renders in Chromium with HTTP 200.
@@ -969,4 +971,3 @@ Before handoff/release:
 - Run `git status` and inspect the complete diff.
 - Verify no profile state or credentials are tracked.
 - Summarize verified behavior, untested combinations, and deferred limitations.
-
