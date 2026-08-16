@@ -11,7 +11,7 @@ The MVP is deliberately explicit and read-only. It never accepts passwords, subm
 
 ## Dependency and installation
 
-During development in this repository, the adapter resolves `../web-inspector` relative to this directory. An installed copy can point at another Web Inspector checkout with `WEB_INSPECTOR_SKILL_DIR`:
+The adapter resolves `../web-inspector` relative to this directory. It can also use a web-inspector in another directory with the environment variable `WEB_INSPECTOR_SKILL_DIR`:
 
 ```bash
 WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
@@ -20,20 +20,13 @@ WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
   --profile wp-local
 ```
 
-The adapter spawns Web Inspector with `process.execPath` and argument arrays. It does not copy browser code or scrape terminal prose. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshots.
+If there is no valid `WEB_INSPECTOR_SKILL_DIR` and there is no sibling `../wordpress-inspector` directory report the problem to the user, ask him to install web-inspector.
 
-Keep the two source directories together when installing or linking them for a host that discovers skills by directory. For Codex, link or copy both complete directories into the host's documented skills directory, for example:
-
-```bash
-ln -s /path/to/ai-tools/web-inspector ~/.codex/skills/web-inspector
-ln -s /path/to/ai-tools/wordpress-inspector ~/.codex/skills/wordpress-inspector
-```
-
-Use the equivalent documented skills directory for OpenCode or another supported agent; this repository does not edit host caches or claim an adapter that is not present. If the directories cannot remain siblings, set `WEB_INSPECTOR_SKILL_DIR` to the separately installed Web Inspector source. Treat linking or copying into a host-owned directory as an installation step: validate the repository source first and obtain operator approval before synchronizing it.
+A Web Inspector spawns with `process.execPath` and argument arrays. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshots.
 
 ## Profile setup and authentication
 
-Declare the profile in Web Inspector's versioned configuration before using it:
+Declare the profile in a Web Inspector configuration file before using it:
 
 ```json
 {
@@ -55,7 +48,7 @@ node scripts/wordpress_inspector.mjs authenticate \
   --timeout 300000
 ```
 
-Sign in only in the visible dedicated window, then close it. If the WordPress login form offers **Remember Me**, select it when the profile must be reused by later CLI processes: some WordPress installs issue session-only auth cookies otherwise. An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it. The command follows the session with a read-only wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headless` with `authenticate` only to receive an explicit error; automated credential bootstrap is intentionally not part of the MVP.
+Sign in only in the visible dedicated window, then close it. If the WordPress login form offers **Remember Me**, select it. An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it. The command follows the session with a read-only wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headless` with `authenticate` only to receive an explicit error; automated credential bootstrap is intentionally not part of the MVP.
 
 The profile must be explicit. Do not infer it from a hostname, workspace, WordPress site, or login form. For local multisite work, use the exact authorized site URL, including its port and path. A network login does not imply that every child host is authenticated.
 
