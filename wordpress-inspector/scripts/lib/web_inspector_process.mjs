@@ -24,6 +24,9 @@ async function ensureScriptExists(webInspectorDir, scriptName) {
 }
 
 export async function runWebInspectorScript(scriptName, args, { env = process.env, timeout = null } = {}) {
+  // The WordPress adapter delegates browser work to the sibling Web Inspector
+  // as a child process, then loads its JSON report instead of parsing terminal
+  // prose. This keeps Playwright behavior shared by both tools.
   const webInspectorDir = resolveWebInspectorDir(env);
   const scriptPath = await ensureScriptExists(webInspectorDir, scriptName);
   return new Promise((resolve, reject) => {

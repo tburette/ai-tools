@@ -20,6 +20,10 @@ import {
   runWebInspectorScript,
 } from "./lib/web_inspector_process.mjs";
 
+// The adapter has two layers: this file defines the WordPress-specific probes
+// and classifications, while Web Inspector performs the actual Playwright
+// navigation, assertions, screenshots, and browser diagnostics.
+
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
   console.error(`Usage:
@@ -121,6 +125,9 @@ function authProbeActions() {
 }
 
 function editorActions() {
+  // Keep this order in sync with classifyEditor(): the classifier refers to
+  // action indexes in the generic Web Inspector report (3 = shell, 4 = canvas,
+  // 5-7 = invalid/recovery/missing indicators, and 8 = fatal editor error).
   return [
     { type: "assertNotVisible", selector: SELECTORS.loginForm },
     { type: "assertNotVisible", selector: SELECTORS.loginUser },
@@ -192,6 +199,9 @@ function classifyAdmin(run) {
 }
 
 function classifyEditor(run) {
+  // A report contains action results plus browser diagnostics. Convert those
+  // low-level results into the stable WordPress classifications and warning
+  // names written to wordpress-summary.json.
   const report = run.report;
   if (!report) {
     return {
@@ -273,6 +283,9 @@ async function captureInspection({ url, profile, configPath, outputDir, timeout,
 }
 
 async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outputDir, timeout, headed, headless }) {
+  // Every check is deliberately two-pass: first detect an expired session,
+  // then run the admin/editor readiness probe only when the login screen is
+  // absent. This keeps AUTH_REQUIRED separate from editor-load failures.
   const actions = command === "check-editor" ? editorActions() : adminActions();
   const url = editorUrl ?? buildBaseUrl(baseUrl, "wp-admin/");
   const authProbe = await captureInspection({
@@ -366,6 +379,9 @@ async function writeSummary(result) {
 }
 
 async function main() {
+  // `main` validates the target and dispatches one of the three public
+  // commands. `authenticate` opens the visible profile first; the two check
+  // commands go through runCheck() and then emit a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
   const baseUrl = normalizeBaseUrl(parsed.baseUrl);
   if (!parsed.profile) throw new Error("--profile is required");

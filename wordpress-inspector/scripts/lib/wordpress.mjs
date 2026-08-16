@@ -9,6 +9,8 @@ export const SELECTORS = {
   // versions expose the writing flow directly, so keep those fallbacks.
   editorCanvas: ":is(.edit-post-visual-editor iframe, .edit-site-visual-editor iframe, .editor-styles-wrapper, .block-editor-writing-flow, .edit-site-visual-editor__editor-canvas)",
   onboardingClose: ":is(.edit-post-welcome-guide .components-modal__header button, .edit-post-welcome-guide [aria-label='Close'], .edit-post-welcome-guide [aria-label='Fermer'], .edit-site-welcome-guide .components-modal__header button, .edit-site-welcome-guide [aria-label='Close'], .edit-site-welcome-guide [aria-label='Fermer'], .block-editor-welcome-guide .components-modal__header button, .block-editor-welcome-guide [aria-label='Close'], .block-editor-welcome-guide [aria-label='Fermer'])",
+  // These are structural error indicators, not block-content parsers: a
+  // visible match makes the corresponding editor-health assertion fail.
   invalidBlockWarning: ".block-editor-warning",
   recoveryPrompt: ".block-editor-block-recovery, .block-editor-block-recovery__dialog",
   missingBlock: ".wp-block-missing",
@@ -41,6 +43,8 @@ export function buildBaseUrl(baseUrl, relativePath) {
 }
 
 export function normalizeEditorUrl(baseUrl, rawValue) {
+  // Only allow known Gutenberg editor routes. The adapter is read-only, so a
+  // same-origin URL alone is not sufficient protection against mutation routes.
   if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("--editor-url is required for check-editor");
   let editorUrl;
   try {
@@ -89,6 +93,9 @@ export function actionFailed(report, index) {
 }
 
 export function technicalIssues(report) {
+  // Action assertion failures are expected product signals (for example, an
+  // invalid-block warning), not browser diagnostics. Only retain actual page,
+  // console, navigation, request, or response failures here.
   const issues = [];
   for (const item of reportItems(report)) {
     if (item.navigationError) issues.push("navigation");
@@ -115,6 +122,9 @@ export function authRequired(report, authActionIndexes = []) {
 }
 
 export function createSummary({ command, baseUrl, editorUrl = null, profile, classification, reportPath, report, checks, warnings = [], limitations = [] }) {
+  // Keep the public artifact small and safe: paths to reports/screenshots are
+  // useful for follow-up inspection, while cookies and browser storage stay
+  // inside the persistent profile and are never serialized here.
   const targetType = command === "check-editor"
     ? "gutenberg-editor"
     : command === "check-admin"
