@@ -1,6 +1,6 @@
 ---
 name: wordpress-inspector
-description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, authentication-expiry detection, editor-shell and canvas checks, invalid-block detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
+description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, Gutenberg health checks, editor snapshots, authentication-expiry detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
 ---
 
 # WordPress Inspector
@@ -89,9 +89,39 @@ The adapter checks structural, locale-resistant signals:
 
 It may dismiss a visible onboarding close control, but it never clicks mutation controls. A check returning HTTP 200 is not enough to establish editor health.
 
+## Editor snapshots
+
+Use `snapshot-editor` when you need the current editor contents as machine-readable artifacts rather than only a health classification:
+
+```bash
+node scripts/wordpress_inspector.mjs snapshot-editor \
+  --base-url http://example.test:8888 \
+  --profile wp-local \
+  --editor-url 'http://example.test:8888/wp-admin/post.php?post=123&action=edit' \
+  --output-dir /tmp/wordpress-inspector/snapshot-editor
+```
+
+The command is intentionally limited to iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`; it does not fall back to the older non-iframe canvas.
+
+On success, the output directory contains:
+
+```text
+<output-dir>/
+├── snapshot-editor/
+│   ├── report.json
+│   ├── rendered-iframe.png
+│   ├── blocks.json
+│   └── source.html
+└── snapshot-editor.json
+```
+
+`rendered-iframe.png` is a screenshot of the complete iframe document, including content below the normal scroll viewport. The collector captures fixed-height viewport tiles while scrolling the iframe, stitches them into one PNG, and restores the original scroll position; it does not resize the editor or its ancestors. `blocks.json` is the recursively collected Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`. `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is and is not reconstructed from the block tree. The URL validator also accepts the Site Editor for `check-editor`, but a Site Editor page may not expose the `core/editor` source selector; in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE` rather than silently switching to another source method.
+
+The snapshot summary references these files under an `artifacts` object and records sizes, dimensions, and a source hash without embedding the page content. Treat the HTML, block attributes, and screenshot as potentially sensitive site content.
+
 ## Classifications and artifacts
 
-The WordPress summary (`wordpress-summary.json`) contains a normalized `targetType` (`authentication`, `wp-admin`, or `gutenberg-editor`), base/final URL, profile name, checks, classification, links to the generic report and screenshots, named warnings (for example `invalid-block-warning`, `block-recovery-prompt`, `missing-block-placeholder`, or `fatal-editor-error`), and limitations. It intentionally omits profile paths, cookies, storage values, authorization headers, usernames, passwords, and filled form values.
+The check summary (`wordpress-summary.json`) and editor snapshot summary (`snapshot-editor.json`) contain a normalized `targetType` (`authentication`, `wp-admin`, or `gutenberg-editor`), base/final URL, profile name, checks, classification, links to the generic report and screenshots, named warnings (for example `invalid-block-warning`, `block-recovery-prompt`, `missing-block-placeholder`, or `fatal-editor-error`), and limitations. Snapshot summaries additionally reference `renderedIframe`, `blocks`, and `source` artifacts. They intentionally omit profile paths, cookies, storage values, authorization headers, usernames, passwords, and filled form values.
 
 Classifications are:
 
@@ -100,6 +130,11 @@ Classifications are:
 - `ADMIN_LOAD_FAILED` — authentication was not the primary signal, but the admin shell failed;
 - `EDITOR_LOAD_FAILED` — the editor shell/canvas or fatal-error checks failed;
 - `EDITOR_INVALID_BLOCKS` — the editor rendered but an invalid/missing/recovery indicator was present;
+- `EDITOR_SNAPSHOT_CAPTURED` — `snapshot-editor` captured the iframe screenshot, block tree, and source successfully;
+- `EDITOR_IFRAME_NOT_FOUND` — `snapshot-editor` requires an accessible iframe-based Gutenberg editor;
+- `EDITOR_IFRAME_EMPTY` — the editor iframe was present but had no measurable document content;
+- `EDITOR_DATA_UNAVAILABLE` — Gutenberg's block-editor data store was unavailable;
+- `EDITOR_SOURCE_UNAVAILABLE` / `EDITOR_SOURCE_INVALID` — the single Gutenberg source selector could not provide a string;
 - `TECHNICAL_ERRORS` — browser or network diagnostics failed.
 
 Authentication expiry is reported separately from a product regression. Rerun `authenticate` for the same explicit site/profile; the adapter never submits credentials automatically.
@@ -118,4 +153,4 @@ From this skill directory, run the fixture-based adapter smoke test:
 node scripts/smoke_test.mjs
 ```
 
-It uses a temporary local server and profile, proves authentication classification, healthy/invalid editor classification, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke, configuration, and profile tests separately from `../web-inspector/`.
+It uses a temporary local server and profile, proves authentication classification, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke, configuration, and profile tests separately from `../web-inspector/`.

@@ -76,10 +76,11 @@ export async function runWebInspectorScript(scriptName, args, { env = process.en
   });
 }
 
-export function captureArgs({ url, profile, configPath, outputDir, timeout, headed, headless, actions = [], waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true }) {
+export function captureArgs({ url, profile, configPath, outputDir, timeout, headed, headless, actions = [], collectorPath = null, waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true }) {
   const args = [url, "--output-dir", outputDir, "--timeout", String(timeout), "--wait-until", waitUntil, "--wait-ms", String(waitMs)];
   if (profile) args.push("--profile", profile);
   if (configPath) args.push("--config", configPath);
+  if (collectorPath) args.push("--collector", collectorPath);
   if (headed) args.push("--headed");
   if (headless) args.push("--headless");
   if (failOnErrors) args.push("--fail-on-errors");

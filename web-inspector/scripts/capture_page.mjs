@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { resolveExecutionOptions, validateProfileName } from "./lib/config.mjs";
 import { prepareProfileDirectory, profileLaunchError } from "./lib/profiles.mjs";
 import {
@@ -28,6 +29,7 @@ Options:
   --full-page                    Capture the full scrollable page
   --output-dir <path>             Output directory (default: /tmp/web-inspector/<timestamp>)
   --action <json>                 Repeatable interaction action
+  --collector <path>              Read-only post-load collector module (advanced)
   --wait-until <event>            load, domcontentloaded, networkidle (default: networkidle)
   --wait-ms <milliseconds>        Extra wait after navigation/actions (default: 300)
   --timeout <milliseconds>        Navigation/action timeout (default: 30000)
@@ -55,6 +57,7 @@ function parseArgs(argv) {
     browserExplicit: false,
     viewports: [],
     actions: [],
+    collectorPath: null,
     fullPage: false,
     outputDir: path.join(os.tmpdir(), "web-inspector", new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")),
     device: null,
@@ -78,6 +81,7 @@ function parseArgs(argv) {
     "config",
     "output-dir",
     "action",
+    "collector",
     "wait-until",
     "wait-ms",
     "timeout",
@@ -114,6 +118,7 @@ function parseArgs(argv) {
       else if (key === "profile") options.profile = validateProfileName(value);
       else if (key === "config") options.configPath = value;
       else if (key === "action") options.actions.push(JSON.parse(value));
+      else if (key === "collector") options.collectorPath = value;
       else if (key === "wait-ms") options.waitMs = Number(value);
       else if (key === "timeout") options.timeout = Number(value);
       else if (key === "output-dir") options.outputDir = value;
@@ -129,6 +134,28 @@ function parseArgs(argv) {
   if (!Number.isFinite(options.waitMs) || options.waitMs < 0) throw new Error("--wait-ms must be a non-negative number");
   if (!Number.isFinite(options.timeout) || options.timeout < 1) throw new Error("--timeout must be positive");
   return { url: positional[0], ...options };
+}
+
+async function loadCollector(collectorPath) {
+  if (!collectorPath) return null;
+  const resolvedPath = path.resolve(collectorPath);
+  let module;
+  try {
+    module = await import(pathToFileURL(resolvedPath).href);
+  } catch (error) {
+    throw new Error(`Could not load Web Inspector collector ${resolvedPath}: ${error.message}`, { cause: error });
+  }
+  if (typeof module.collect !== "function") {
+    throw new Error(`Web Inspector collector ${resolvedPath} must export collect()`);
+  }
+  return { path: resolvedPath, collect: module.collect };
+}
+
+function serializedCollectorError(error) {
+  return {
+    code: typeof error?.code === "string" ? error.code : "COLLECTOR_ERROR",
+    message: String(error?.message || error),
+  };
 }
 
 function safeFileName(value) {
@@ -234,6 +261,7 @@ async function collectRuntimeSummary(page) {
 async function main() {
   const cliOptions = parseArgs(process.argv.slice(2));
   const options = await resolveExecutionOptions(cliOptions);
+  const collector = await loadCollector(options.collectorPath);
   if (options.profile && options.browser !== "chromium") {
     throw new Error("Persistent profiles are supported only with Chromium; omit --profile for Firefox");
   }
@@ -296,6 +324,7 @@ async function main() {
       headed: options.headed,
       profile: options.profile,
       persistentContext: Boolean(options.profile),
+      collector: collector ? path.basename(collector.path) : null,
     },
     viewports: [],
     errors: [],
@@ -309,7 +338,7 @@ async function main() {
         await page.setViewportSize(viewport);
       }
       page.setDefaultTimeout(options.timeout);
-      const item = { viewport, screenshot: null, title: null, finalUrl: null, status: null, console: [], pageErrors: [], failedRequests: [], failedResponses: [], actionResults: [], navigationError: null, runtime: null, domSummary: null };
+      const item = { viewport, screenshot: null, title: null, finalUrl: null, status: null, console: [], pageErrors: [], failedRequests: [], failedResponses: [], actionResults: [], navigationError: null, collector: null, collectorError: null, runtime: null, domSummary: null };
       page.on("console", (message) => {
         if (["error", "warning"].includes(message.type())) item.console.push({ type: message.type(), text: message.text() });
       });
@@ -338,6 +367,19 @@ async function main() {
       }
       if (options.waitMs) await page.waitForTimeout(options.waitMs);
 
+      if (collector) {
+        try {
+          item.collector = await collector.collect({
+            page,
+            viewport,
+            outputDir,
+            timeout: options.timeout,
+          });
+        } catch (error) {
+          item.collectorError = serializedCollectorError(error);
+        }
+      }
+
       const screenshotName = `${viewport.width}x${viewport.height}${options.fullPage ? "-full" : ""}.png`;
       const screenshotPath = path.join(outputDir, screenshotName);
       await page.screenshot({ path: screenshotPath, fullPage: options.fullPage });
@@ -360,7 +402,7 @@ async function main() {
   await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ ...report, report: reportPath }, null, 2));
 
-  const errorCount = report.viewports.reduce((count, item) => count + item.console.filter(({ type }) => type === "error").length + item.pageErrors.length + item.failedRequests.length + item.failedResponses.length + (item.navigationError ? 1 : 0), 0);
+  const errorCount = report.viewports.reduce((count, item) => count + item.console.filter(({ type }) => type === "error").length + item.pageErrors.length + item.failedRequests.length + item.failedResponses.length + (item.navigationError ? 1 : 0) + (item.collectorError ? 1 : 0), 0);
   if (options.failOnErrors && errorCount > 0) process.exitCode = 1;
 }
 

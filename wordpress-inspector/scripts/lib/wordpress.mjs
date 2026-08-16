@@ -1,5 +1,9 @@
 const LOGIN_PATH = "/wp-login.php";
 
+export function isEditorCommand(command) {
+  return command === "check-editor" || command === "snapshot-editor";
+}
+
 export const SELECTORS = {
   loginForm: "#loginform",
   loginUser: "#user_login",
@@ -45,7 +49,7 @@ export function buildBaseUrl(baseUrl, relativePath) {
 export function normalizeEditorUrl(baseUrl, rawValue) {
   // Only allow known Gutenberg editor routes. The adapter is read-only, so a
   // same-origin URL alone is not sufficient protection against mutation routes.
-  if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("--editor-url is required for check-editor");
+  if (typeof rawValue !== "string" || !rawValue.trim()) throw new Error("--editor-url is required for an editor command");
   let editorUrl;
   try {
     editorUrl = new URL(rawValue, `${baseUrl}/`);
@@ -115,17 +119,26 @@ export function screenshots(report) {
   return reportItems(report).map((item) => item.screenshot).filter(Boolean);
 }
 
+export function collectorArtifacts(report) {
+  return reportItems(report)[0]?.collector ?? null;
+}
+
+export function collectorError(report) {
+  return reportItems(report).find((item) => item.collectorError)?.collectorError ?? null;
+}
+
 export function authRequired(report, authActionIndexes = []) {
   if (isLoginUrl(finalUrl(report))) return true;
   if (authActionIndexes.some((index) => actionFailed(report, index))) return true;
   return false;
 }
 
-export function createSummary({ command, baseUrl, editorUrl = null, profile, classification, reportPath, report, checks, warnings = [], limitations = [] }) {
+export function createSummary({ command, baseUrl, editorUrl = null, profile, classification, reportPath, report, checks, warnings = [], limitations = [], artifacts = null }) {
   // Keep the public artifact small and safe: paths to reports/screenshots are
   // useful for follow-up inspection, while cookies and browser storage stay
-  // inside the persistent profile and are never serialized here.
-  const targetType = command === "check-editor"
+  // inside the persistent profile and are never serialized here. Snapshot
+  // artifacts are referenced by path rather than copied into this summary.
+  const targetType = isEditorCommand(command)
     ? "gutenberg-editor"
     : command === "check-admin"
       ? "wp-admin"
@@ -144,5 +157,6 @@ export function createSummary({ command, baseUrl, editorUrl = null, profile, cla
     screenshots: screenshots(report),
     warnings,
     limitations,
+    ...(artifacts ? { artifacts } : {}),
   };
 }

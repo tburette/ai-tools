@@ -54,6 +54,8 @@ The runner supports the following workflows. Script paths below are relative to 
 
 - **Diagnose page health.** Read `report.json` for console warnings/errors, uncaught page errors, failed requests, HTTP responses with status 400 or higher, navigation errors, and action failures. Add `--fail-on-errors` when the shell command should exit non-zero for console errors, uncaught page errors, failed requests/responses, navigation errors, or action failures. Console warnings are still recorded but do not fail the command by themselves, for example: `node scripts/capture_page.mjs http://localhost:3000/ --fail-on-errors --output-dir /tmp/web-inspector/diagnostics`.
 
+- **Run a trusted read-only collector.** Advanced adapters may pass `--collector <path>` for a local ES module exporting `collect({ page, viewport, outputDir, timeout })`. The collector runs after navigation/actions and before the ordinary page screenshot; its returned value is stored in that viewport's `collector` report field, and failures are recorded in `collectorError`. Use only repository-provided collectors whose read-only behavior you have reviewed; this is an extension point for specialized skills, not a general-purpose script-evaluation interface.
+
 It is a rendering and interaction harness, not a full accessibility auditor, pixel-diff engine, network mocking system, or video recorder. Add a dedicated check or script when one of those is required.
 
 ## Persistent profiles and headed sessions
@@ -216,7 +218,7 @@ Use a Playwright selector such as a CSS selector, `text=...`, or `role=...`. For
 | `clickIfVisible` | `{"type":"clickIfVisible","selector":"..."}` | Click the first matching visible element when present; otherwise succeed with `clicked: false`. |
 | `screenshot` | `{"type":"screenshot","name":"menu-open","fullPage":false}` | Save a PNG at the current state. `name` becomes part of the filename; `fullPage` defaults to false. |
 
-When an action fails, the runner continues to collect the screenshot and report for that viewport. Use `--fail-on-errors` when the shell command should exit non-zero for console errors, page errors, request/response errors, navigation errors, or action failures; warnings alone do not cause a non-zero exit.
+When an action or collector fails, the runner continues to collect the screenshot and report for that viewport. Use `--fail-on-errors` when the shell command should exit non-zero for console errors, page errors, request/response errors, navigation errors, action failures, or collector failures; warnings alone do not cause a non-zero exit.
 
 ## Playwright resolution and browser launch
 

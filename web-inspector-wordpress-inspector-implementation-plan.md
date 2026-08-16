@@ -1,10 +1,10 @@
 # Web Inspector profiles and WordPress Inspector — implementation plan
 
-**Status:** MVP implemented; local network-site verification completed; child-site verification and release/installation work remain intentionally unverified
+**Status:** MVP implemented, including `snapshot-editor`; fixture smoke and live local network-site iframe snapshot checks completed; child-site verification and release/installation work remain intentionally unverified
 **Last updated:** 2026-08-16
 **Repository:** `/home/tburette/dev/ai/ai-tools`  
 **Primary existing component:** `web-inspector/`  
-**Planned new component:** `wordpress-inspector/`
+**Component:** `wordpress-inspector/`
 
 ## 1. Purpose of this document
 
@@ -196,6 +196,7 @@ wordpress-inspector/
     ├── wordpress_inspector.mjs
     ├── smoke_test.mjs
     └── lib/
+        ├── editor_artifacts.mjs
         ├── wordpress.mjs
         └── web_inspector_process.mjs
 ```
@@ -465,6 +466,7 @@ Use one script with subcommands:
 node scripts/wordpress_inspector.mjs authenticate [options]
 node scripts/wordpress_inspector.mjs check-admin [options]
 node scripts/wordpress_inspector.mjs check-editor [options]
+node scripts/wordpress_inspector.mjs snapshot-editor --editor-url <url> [options]
 ```
 
 Shared required options:
@@ -563,6 +565,14 @@ Checks:
 
 Selectors must be version-aware and locale-resistant. Use CSS classes, roles, data attributes, and stable editor structure before visible strings. When translated strings are unavoidable, support at least English and French in one documented selector set. Run a short structural authentication probe before shell/canvas assertions so a login screen is classified without waiting through editor readiness timeouts.
 
+### 9.7.1 `snapshot-editor` workflow
+
+`snapshot-editor` is a separate read-only command for collecting the current Gutenberg editor state. It uses the same authentication, URL validation, and health checks as `check-editor`, then runs a repository-provided Web Inspector collector after the page is stable.
+
+The command deliberately supports only iframe-based Gutenberg. It must find an accessible iframe containing the editor canvas; otherwise it fails with `EDITOR_IFRAME_NOT_FOUND` and does not fall back to the legacy direct-DOM canvas. The collector captures fixed-height viewport tiles while scrolling the iframe, stitches them into one PNG, and restores the original scroll position; it does not resize the editor or its ancestors.
+
+It writes a consistently named `<output-dir>/snapshot-editor/` directory containing `rendered-iframe.png`, `blocks.json`, `source.html`, and the generic `report.json`, plus `<output-dir>/snapshot-editor.json`. The block tree comes from one page-side `wp.data.select('core/block-editor').getBlocks()` traversal, including nested blocks and attributes. For post/page editors, the source file comes from the single `wp.data.select('core/editor').getEditedPostContent()` selector and is written as-is; no textarea, CodeMirror, or alternate source reconstruction path is used. A Site Editor URL may not expose that selector and then fails explicitly with `EDITOR_SOURCE_UNAVAILABLE`. The WordPress summary references artifact paths and metadata without embedding content.
+
 ### 9.8 Gutenberg-specific checks
 
 The first implementation should cover:
@@ -577,6 +587,7 @@ The first implementation should cover:
 - optional onboarding dialog dismissal;
 - screenshot after the editor reaches the stable checked state;
 - technical diagnostics from Web Inspector.
+- `snapshot-editor` additionally captures the full iframe rendering, recursive block tree, and edited source as separate read-only artifacts.
 
 Do not claim block validity solely because the editor URL returns HTTP 200. The editor must render and the invalid-block indicators must be absent.
 
@@ -615,6 +626,8 @@ Write a small WordPress-level JSON summary next to the underlying Web Inspector 
 - path to the generic `report.json` and screenshots;
 - detected WordPress/Gutenberg warnings;
 - limitations or skipped checks.
+
+For `snapshot-editor`, also include a normalized `artifacts` object with the screenshot, block-tree, and source paths plus dimensions, counts, byte size, and source hash. Keep the content itself in the referenced files so the summary remains small.
 
 Do not duplicate all low-level Web Inspector diagnostics; link to the generic report.
 
@@ -774,6 +787,7 @@ Tasks:
 - Use generic positive/negative assertions for editor readiness and invalid blocks.
 - Add fake editor fixtures for healthy, invalid-block, fatal, and login-redirect states.
 - Include editor screenshots and classification in the WordPress summary.
+- Add an iframe fixture for `snapshot-editor`, verifying full-height rendering, nested block extraction, exact source retrieval, and the explicit no-iframe error.
 
 Validation:
 
@@ -794,6 +808,7 @@ Tasks:
 - Verify `check-admin` on the network site.
 - Resolve the current Home editor URL read-only; do not hardcode a database ID in reusable code.
 - Run `check-editor` on the Home and the existing all-patterns review page.
+- Run `snapshot-editor` on a visual-mode iframe editor page and inspect `rendered-iframe.png`, `blocks.json`, and `source.html`.
 - Check at least one farm subsite and authenticate that host separately if WordPress cookie scope requires it.
 - Inspect every screenshot and underlying report.
 
@@ -859,6 +874,7 @@ Validation:
 | Editor readiness | Healthy editor shell/canvas |
 | Onboarding | Dialog present and absent; optional close succeeds both ways |
 | Invalid blocks | Unexpected-content warning, recovery prompt, missing block |
+| Editor snapshot | Iframe-only full rendering, nested block list, exact edited source, no-iframe error |
 | Localization | Structural checks plus English/French fallback where needed |
 | Safety | No Save/Publish/Trash/Upload action generated or executed |
 | Composition | Correct Web Inspector script/profile/options passed as argument array |
@@ -885,10 +901,11 @@ The project is complete when all of the following are true:
 6. WordPress Inspector is a separate skill and contains all WordPress/Gutenberg semantics.
 7. WordPress authentication expiry is classified correctly without relying on HTTP status alone.
 8. Gutenberg checks distinguish login failure, editor load failure, invalid blocks, and technical browser errors.
-9. The WordPress MVP performs no content/configuration mutations after login.
-10. Automated tests cover persistence, isolation, config precedence, auth detection, editor states, and secret handling.
-11. A real local WordPress admin/editor inspection reuses authentication successfully.
-12. Documentation is sufficient for handoff and contains no secrets or machine-specific tracked profile paths.
+9. `snapshot-editor` captures the full iframe screenshot, recursive block list, and exact edited source through one consistent command, and errors when Gutenberg is not iframe-based.
+10. The WordPress MVP performs no content/configuration mutations after login.
+11. Automated tests cover persistence, isolation, config precedence, auth detection, editor states, snapshot artifacts, and secret handling.
+12. A real local WordPress admin/editor inspection reuses authentication successfully.
+13. Documentation is sufficient for handoff and contains no secrets or machine-specific tracked profile paths.
 
 ## 15. Risks and mitigations
 

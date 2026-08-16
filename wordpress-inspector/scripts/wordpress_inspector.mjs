@@ -3,13 +3,17 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   SELECTORS,
   actionFailed,
   authRequired,
   buildBaseUrl,
+  collectorArtifacts,
+  collectorError,
   createSummary,
   finalUrl,
+  isEditorCommand,
   normalizeBaseUrl,
   normalizeEditorUrl,
   technicalIssues,
@@ -19,6 +23,8 @@ import {
   openProfileArgs,
   runWebInspectorScript,
 } from "./lib/web_inspector_process.mjs";
+
+const EDITOR_COLLECTOR_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "lib", "editor_artifacts.mjs");
 
 // The adapter has two layers: this file defines the WordPress-specific probes
 // and classifications, while Web Inspector performs the actual Playwright
@@ -30,6 +36,7 @@ function usage(message) {
   node scripts/wordpress_inspector.mjs authenticate [options]
   node scripts/wordpress_inspector.mjs check-admin [options]
   node scripts/wordpress_inspector.mjs check-editor --editor-url <url> [options]
+  node scripts/wordpress_inspector.mjs snapshot-editor --editor-url <url> [options]
 
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
@@ -39,7 +46,7 @@ Shared options:
   --headed                        Forward headed capture mode
   --headless                      Force headless capture mode
   --timeout <milliseconds>        Navigation/action timeout (default: 30000)
-  --editor-url <url>              Same-origin Gutenberg editor URL for check-editor
+  --editor-url <url>              Same-origin Gutenberg editor URL for editor commands
   --help                          Show this help
 `);
   process.exit(message ? 2 : 0);
@@ -47,8 +54,8 @@ Shared options:
 
 function parseArgs(argv) {
   const command = argv.shift();
-  if (!command || !["authenticate", "check-admin", "check-editor"].includes(command)) {
-    throw new Error(`Unknown command "${command ?? ""}"; expected authenticate, check-admin, or check-editor`);
+  if (!command || !["authenticate", "check-admin", "check-editor", "snapshot-editor"].includes(command)) {
+    throw new Error(`Unknown command "${command ?? ""}"; expected authenticate, check-admin, check-editor, or snapshot-editor`);
   }
   const options = {
     baseUrl: null,
@@ -247,12 +254,48 @@ function classifyEditor(run) {
   return { classification, checks, technical, warnings };
 }
 
+function classifySnapshot(run) {
+  const editorResult = classifyEditor(run);
+  const report = run.report;
+  const snapshotFailure = collectorError(report);
+  const snapshotCheck = actionCheck(
+    "editor snapshot artifacts captured",
+    snapshotFailure ? false : report ? true : null,
+    snapshotFailure?.message ?? (report ? null : "Generic Web Inspector report unavailable"),
+  );
+  const checks = [...editorResult.checks, snapshotCheck];
+  if (snapshotFailure) {
+    const supportedSnapshotErrors = new Set([
+      "EDITOR_IFRAME_NOT_FOUND",
+      "EDITOR_IFRAME_EMPTY",
+      "EDITOR_DATA_UNAVAILABLE",
+      "EDITOR_SOURCE_UNAVAILABLE",
+      "EDITOR_SOURCE_INVALID",
+    ]);
+    const classification = ["AUTH_REQUIRED", "TECHNICAL_ERRORS"].includes(editorResult.classification)
+      ? editorResult.classification
+      : supportedSnapshotErrors.has(snapshotFailure.code)
+        ? snapshotFailure.code
+        : "TECHNICAL_ERRORS";
+    return {
+      ...editorResult,
+      classification,
+      checks,
+      warnings: [...new Set([...(editorResult.warnings ?? []), snapshotFailure.code])],
+    };
+  }
+  if (editorResult.classification === "AUTHENTICATED") {
+    return { ...editorResult, classification: "EDITOR_SNAPSHOT_CAPTURED", checks };
+  }
+  return { ...editorResult, checks };
+}
+
 function authProbeChecks(command, run) {
   const report = run.report;
   if (!report) return unavailableChecks([
     "login form absent",
     "login username control absent",
-    command === "check-editor" ? "editor readiness probe" : "wp-admin readiness probe",
+    isEditorCommand(command) ? "editor readiness probe" : "wp-admin readiness probe",
     "browser diagnostics clear",
   ]);
   const technical = technicalIssues(report);
@@ -260,7 +303,7 @@ function authProbeChecks(command, run) {
     actionCheck("login form absent", !actionFailed(report, 0)),
     actionCheck("login username control absent", !actionFailed(report, 1)),
     actionCheck(
-      command === "check-editor" ? "editor readiness probe" : "wp-admin readiness probe",
+      isEditorCommand(command) ? "editor readiness probe" : "wp-admin readiness probe",
       null,
       "Skipped after authentication probe detected a login screen",
     ),
@@ -268,7 +311,7 @@ function authProbeChecks(command, run) {
   ];
 }
 
-async function captureInspection({ url, profile, configPath, outputDir, timeout, headed, headless, actions, waitMs }) {
+async function captureInspection({ url, profile, configPath, outputDir, timeout, headed, headless, actions, collectorPath = null, waitMs }) {
   return runWebInspectorScript("capture_page.mjs", captureArgs({
     url,
     profile,
@@ -278,15 +321,20 @@ async function captureInspection({ url, profile, configPath, outputDir, timeout,
     headed,
     headless,
     actions,
+    collectorPath,
     waitMs,
   }));
+}
+
+function summaryFileName(command) {
+  return command === "snapshot-editor" ? "snapshot-editor.json" : "wordpress-summary.json";
 }
 
 async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outputDir, timeout, headed, headless }) {
   // Every check is deliberately two-pass: first detect an expired session,
   // then run the admin/editor readiness probe only when the login screen is
   // absent. This keeps AUTH_REQUIRED separate from editor-load failures.
-  const actions = command === "check-editor" ? editorActions() : adminActions();
+  const actions = isEditorCommand(command) ? editorActions() : adminActions();
   const url = editorUrl ?? buildBaseUrl(baseUrl, "wp-admin/");
   const authProbe = await captureInspection({
     url,
@@ -322,12 +370,16 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
       checks: summary.checks,
       technical,
       summary,
-      summaryPath: path.join(outputDir, "wordpress-summary.json"),
+      summaryPath: path.join(outputDir, summaryFileName(command)),
     };
   }
   if (!authProbe.report) {
     const result = addFailureWarning(
-      command === "check-editor" ? classifyEditor(authProbe) : classifyAdmin(authProbe),
+      command === "snapshot-editor"
+        ? classifySnapshot(authProbe)
+        : isEditorCommand(command)
+          ? classifyEditor(authProbe)
+          : classifyAdmin(authProbe),
       authProbe,
     );
     const summary = createSummary({
@@ -342,9 +394,9 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
       warnings: result.warnings,
       limitations: ["Read-only inspection; the generic Web Inspector report was unavailable."],
     });
-    return { ...authProbe, ...result, summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
+    return { ...authProbe, ...result, summary, summaryPath: path.join(outputDir, summaryFileName(command)) };
   }
-  const genericOutputDir = path.join(outputDir, "web-inspector");
+  const genericOutputDir = path.join(outputDir, command === "snapshot-editor" ? "snapshot-editor" : "web-inspector");
   const run = await captureInspection({
     url,
     profile,
@@ -354,9 +406,14 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
     headed,
     headless,
     actions,
+    collectorPath: command === "snapshot-editor" ? EDITOR_COLLECTOR_PATH : null,
     waitMs: 750,
   });
-  const result = command === "check-editor" ? classifyEditor(run) : classifyAdmin(run);
+  const result = command === "snapshot-editor"
+    ? classifySnapshot(run)
+    : isEditorCommand(command)
+      ? classifyEditor(run)
+      : classifyAdmin(run);
   const reportedResult = addFailureWarning(result, run);
   const summary = createSummary({
     command,
@@ -369,8 +426,9 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
     checks: reportedResult.checks,
     warnings: reportedResult.warnings ?? reportedResult.technical,
     limitations: ["Read-only inspection; no WordPress mutation controls are exercised."],
+    artifacts: command === "snapshot-editor" ? collectorArtifacts(run.report) : null,
   });
-  return { ...run, ...reportedResult, summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
+  return { ...run, ...reportedResult, summary, summaryPath: path.join(outputDir, summaryFileName(command)) };
 }
 
 async function writeSummary(result) {
@@ -379,14 +437,14 @@ async function writeSummary(result) {
 }
 
 async function main() {
-  // `main` validates the target and dispatches one of the three public
-  // commands. `authenticate` opens the visible profile first; the two check
-  // commands go through runCheck() and then emit a sanitized summary.
+  // `main` validates the target and dispatches the public commands.
+  // `authenticate` opens the visible profile first; editor/admin commands go
+  // through runCheck() and then emit a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
   const baseUrl = normalizeBaseUrl(parsed.baseUrl);
   if (!parsed.profile) throw new Error("--profile is required");
-  const editorUrl = parsed.command === "check-editor" ? normalizeEditorUrl(baseUrl, parsed.editorUrl) : null;
-  if (parsed.command !== "check-editor" && parsed.editorUrl) throw new Error("--editor-url is only valid with check-editor");
+  const editorUrl = isEditorCommand(parsed.command) ? normalizeEditorUrl(baseUrl, parsed.editorUrl) : null;
+  if (!isEditorCommand(parsed.command) && parsed.editorUrl) throw new Error("--editor-url is only valid with editor commands");
   if (parsed.command === "authenticate" && parsed.headlessSpecified) throw new Error("authenticate requires a visible browser; do not pass --headless");
   const outputDir = await prepareOutputRoot(parsed.outputDir);
   const configPath = parsed.configPath ? path.resolve(parsed.configPath) : null;
@@ -468,7 +526,7 @@ async function main() {
     headless: parsed.headlessSpecified,
   });
   await writeSummary(result);
-  if (result.classification !== "AUTHENTICATED") process.exitCode = 1;
+  if (!["AUTHENTICATED", "EDITOR_SNAPSHOT_CAPTURED"].includes(result.classification)) process.exitCode = 1;
 }
 
 main().catch((error) => {

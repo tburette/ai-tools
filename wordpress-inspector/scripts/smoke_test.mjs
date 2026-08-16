@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -29,6 +29,22 @@ function pageFor(requestUrl, authenticated) {
   if (requestUrl.pathname === "/wp-admin/post.php") {
     const fixture = requestUrl.searchParams.get("fixture") || "healthy";
     if (fixture === "login") return loginPage();
+    if (fixture === "snapshot") {
+      const frameHtml = "<!doctype html><html><head><style>html,body{margin:0} .editor-styles-wrapper{height:1800px;padding:16px;background:linear-gradient(#fff,#ddd)} [data-block]{margin:12px;padding:12px;border:1px solid #888}</style></head><body><div class='editor-styles-wrapper'><div data-block='root'><div data-block='child'>Snapshot fixture</div></div></div></body></html>";
+      const escapedFrameHtml = frameHtml.replaceAll("&", "&amp;").replaceAll("\"", "&quot;");
+      return `<!doctype html><html><body><script>
+        const rootBlocks = [{ clientId: "root", name: "core/group", attributes: { layout: "constrained" } }];
+        const childBlocks = [{ clientId: "child", name: "core/paragraph", attributes: { content: "Snapshot fixture" } }];
+        window.wp = {
+          data: { select: (namespace) => namespace === "core/block-editor"
+            ? { getBlocks: (root) => root === "root" ? childBlocks : root ? [] : rootBlocks, isBlockValid: () => true, areInnerBlocksControlled: () => false }
+            : namespace === "core/editor"
+              ? { getEditedPostContent: () => "<!-- wp:group --><div class=\\"wp-block-group\\"><!-- wp:paragraph --><p>Snapshot fixture</p><!-- /wp:paragraph --></div><!-- /wp:group -->", getCurrentPostType: () => "page", getCurrentPostId: () => 1 }
+              : {} },
+          blocks: { getBlockType: (name) => ({ title: name }) }
+        };
+      </script><style>.edit-post-visual-editor{width:640px;height:160px;overflow:hidden}.edit-post-visual-editor iframe{display:block;width:100%;height:100%;border:0}</style><div class="edit-post-visual-editor"><iframe title="Editor" srcdoc="${escapedFrameHtml}"></iframe></div></body></html>`;
+    }
     const warning = fixture === "invalid" ? `<div class="block-editor-warning">This block contains unexpected or invalid content.</div>` : "";
     const fatal = fixture === "fatal" ? `<div class="editor-error">Editor failed</div>` : "";
     const onboarding = fixture === "onboarding"
@@ -76,8 +92,8 @@ function runCli(args, env) {
   });
 }
 
-async function readSummary(outputDir) {
-  return JSON.parse(await readFile(path.join(outputDir, "wordpress-summary.json"), "utf8"));
+async function readSummary(outputDir, fileName = "wordpress-summary.json") {
+  return JSON.parse(await readFile(path.join(outputDir, fileName), "utf8"));
 }
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-smoke-"));
@@ -256,6 +272,59 @@ try {
   assert.equal(technicalRun.code, 1, technicalRun.stderr || technicalRun.stdout);
   const technicalSummary = await readSummary(technicalOutput);
   assert.equal(technicalSummary.classification, "TECHNICAL_ERRORS");
+
+  const snapshotOutput = path.join(outputRoot, "editor-snapshot");
+  const snapshotRun = await runCli([
+    "snapshot-editor",
+    "--base-url", baseUrl,
+    "--profile", "fake",
+    "--config", configPath,
+    "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=snapshot`,
+    "--output-dir", snapshotOutput,
+    "--timeout", "5000",
+  ], env);
+  assert.equal(snapshotRun.code, 0, snapshotRun.stderr || snapshotRun.stdout);
+  const snapshotSummary = await readSummary(snapshotOutput, "snapshot-editor.json");
+  assert.equal(snapshotSummary.classification, "EDITOR_SNAPSHOT_CAPTURED");
+  assert.equal(snapshotSummary.artifacts.blocks.rootCount, 1);
+  assert.equal(snapshotSummary.artifacts.blocks.totalCount, 2);
+  assert.equal(snapshotSummary.artifacts.source.method, "wp.data.select('core/editor').getEditedPostContent");
+  assert.ok(snapshotSummary.artifacts.renderedIframe.height > 1100);
+  assert.equal(snapshotSummary.artifacts.renderedIframe.captureMode, "scroll-stitch");
+  assert.ok(snapshotSummary.artifacts.renderedIframe.tileCount > 1);
+  assert.ok((await stat(snapshotSummary.artifacts.renderedIframe.path)).size > 0);
+  const snapshotBlocks = JSON.parse(await readFile(snapshotSummary.artifacts.blocks.path, "utf8"));
+  assert.equal(snapshotBlocks.blocks[0].innerBlocks[0].name, "core/paragraph");
+  assert.equal(await readFile(snapshotSummary.artifacts.source.path, "utf8"), "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph --><p>Snapshot fixture</p><!-- /wp:paragraph --></div><!-- /wp:group -->");
+
+  const snapshotNoIframeOutput = path.join(outputRoot, "editor-snapshot-no-iframe");
+  const snapshotNoIframeRun = await runCli([
+    "snapshot-editor",
+    "--base-url", baseUrl,
+    "--profile", "fake",
+    "--config", configPath,
+    "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=healthy`,
+    "--output-dir", snapshotNoIframeOutput,
+    "--timeout", "5000",
+  ], env);
+  assert.equal(snapshotNoIframeRun.code, 1, snapshotNoIframeRun.stderr || snapshotNoIframeRun.stdout);
+  const snapshotNoIframeSummary = await readSummary(snapshotNoIframeOutput, "snapshot-editor.json");
+  assert.equal(snapshotNoIframeSummary.classification, "EDITOR_IFRAME_NOT_FOUND");
+  assert.equal(snapshotNoIframeSummary.checks.find(({ name }) => name === "editor snapshot artifacts captured").passed, false);
+
+  const snapshotTechnicalOutput = path.join(outputRoot, "editor-snapshot-technical");
+  const snapshotTechnicalRun = await runCli([
+    "snapshot-editor",
+    "--base-url", baseUrl,
+    "--profile", "fake",
+    "--config", configPath,
+    "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=technical`,
+    "--output-dir", snapshotTechnicalOutput,
+    "--timeout", "5000",
+  ], env);
+  assert.equal(snapshotTechnicalRun.code, 1, snapshotTechnicalRun.stderr || snapshotTechnicalRun.stdout);
+  const snapshotTechnicalSummary = await readSummary(snapshotTechnicalOutput, "snapshot-editor.json");
+  assert.equal(snapshotTechnicalSummary.classification, "TECHNICAL_ERRORS");
 
   const crossOriginOutput = path.join(outputRoot, "cross-origin");
   const crossOriginRun = await runCli([
