@@ -9,7 +9,25 @@ Use this skill for read-only inspection of an authorized WordPress site, its wp-
 
 The MVP is deliberately explicit and read-only. It never accepts passwords, submits content changes, saves, publishes, uploads, installs, activates, trashes, or resets WordPress data. A persistent browser profile contains bearer credentials; protect it like a password.
 
-## Dependency and installation
+
+## retrieve post ID from frontend url
+
+If you have the address of a page(or post) and want to retrieve its post id and maybe open the gutenberg editor for that page : 
+- extract the slug from the url (eg. http://lepaysanurbain.test:8888/test-lpu-split-section/ => test-lpu-split-section)
+- resolve the id  using a wp-env query, for example:
+
+     npm run env:cli -- post list \
+       --post_type=page \
+       --name=test-lpu-split-section \
+       --field=ID
+
+     Or via the authenticated REST API:
+
+     /wp-json/wp/v2/pages?slug=test-lpu-split-section&_fields=id,link,slug
+- the gutenberg page corresponding to it is http://<HOST>/wp-admin/post.php?post=<POST_ID>&action=edit
+
+
+# Dependency and installation
 
 The adapter resolves `../web-inspector` relative to this directory. It can also use a web-inspector in another directory with the environment variable `WEB_INSPECTOR_SKILL_DIR`:
 
