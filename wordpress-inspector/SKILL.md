@@ -1,6 +1,6 @@
 ---
 name: wordpress-inspector
-description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, Gutenberg health checks, editor snapshots, authentication-expiry detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
+description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, Gutenberg health checks, retrieve for a gutenberg editor page the html source content of a post (page,..) and a screenshot of the editing area, authentication-expiry detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
 ---
 
 # WordPress Inspector
@@ -91,7 +91,7 @@ It may dismiss a visible onboarding close control, but it never clicks mutation 
 
 ## Editor snapshots
 
-Use `snapshot-editor` when you need the current editor contents as machine-readable artifacts rather than only a health classification:
+Use `snapshot-editor` when you need the current editor contents (post/page html source code of the page, an image of what the entire post/page looks like in the editor, the block tree) as machine-readable artifacts:
 
 ```bash
 node scripts/wordpress_inspector.mjs snapshot-editor \
@@ -101,7 +101,7 @@ node scripts/wordpress_inspector.mjs snapshot-editor \
   --output-dir /tmp/wordpress-inspector/snapshot-editor
 ```
 
-The command is intentionally limited to iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`; it does not fall back to the older non-iframe canvas.
+The command only works with iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
 
 On success, the output directory contains:
 
@@ -115,7 +115,7 @@ On success, the output directory contains:
 └── snapshot-editor.json
 ```
 
-`rendered-iframe.png` is a screenshot of the complete iframe document, including content below the normal scroll viewport. The collector captures fixed-height viewport tiles while scrolling the iframe, stitches them into one PNG, and restores the original scroll position; it does not resize the editor or its ancestors. `blocks.json` is the recursively collected Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`. `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is and is not reconstructed from the block tree. The URL validator also accepts the Site Editor for `check-editor`, but a Site Editor page may not expose the `core/editor` source selector; in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE` rather than silently switching to another source method.
+`rendered-iframe.png` is a screenshot of the complete iframe document. `blocks.json` is the recursively collected Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`. `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is and is not reconstructed from the block tree. The URL validator also accepts the Site Editor for `check-editor`, but a Site Editor page may not expose the `core/editor` source selector; in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE` rather than silently switching to another source method.
 
 The snapshot summary references these files under an `artifacts` object and records sizes, dimensions, and a source hash without embedding the page content. Treat the HTML, block attributes, and screenshot as potentially sensitive site content.
 
