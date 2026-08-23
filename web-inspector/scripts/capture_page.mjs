@@ -36,6 +36,7 @@ Options:
   --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
   --no-local-map                  Do not map localhost/*.test to 127.0.0.1
+  --full-text                     Do not truncate domSummary.bodyText (default: first 200 chars + marker)
   --fail-on-errors                Exit non-zero when page/request/action errors occur
   --help                          Show this help
 `);
@@ -68,11 +69,13 @@ function parseArgs(argv) {
     waitMs: 300,
     timeout: 30000,
     localMap: true,
+    fullText: false,
     failOnErrors: false,
     ignoreHttpsErrors: false,
     executablePath: null,
   };
   const positional = [];
+  // NOTE: custom HTTP request headers (--header) are intentionally unsupported for now.
   const valueOptions = new Set([
     "browser",
     "viewport",
@@ -98,6 +101,7 @@ function parseArgs(argv) {
     const key = arg.slice(2);
     if (key === "full-page") options.fullPage = true;
     else if (key === "no-local-map") options.localMap = false;
+    else if (key === "full-text") options.fullText = true;
     else if (key === "fail-on-errors") options.failOnErrors = true;
     else if (key === "ignore-https-errors") options.ignoreHttpsErrors = true;
     else if (key === "headed" || key === "headless") {
@@ -117,7 +121,13 @@ function parseArgs(argv) {
       else if (key === "device") options.device = value;
       else if (key === "profile") options.profile = validateProfileName(value);
       else if (key === "config") options.configPath = value;
-      else if (key === "action") options.actions.push(JSON.parse(value));
+      else if (key === "action") {
+        try {
+          options.actions.push(JSON.parse(value));
+        } catch (error) {
+          throw new Error(`Invalid JSON for --action #${options.actions.length + 1}: ${error.message}`);
+        }
+      }
       else if (key === "collector") options.collectorPath = value;
       else if (key === "wait-ms") options.waitMs = Number(value);
       else if (key === "timeout") options.timeout = Number(value);
@@ -226,26 +236,40 @@ async function runAction(page, action, outputDir, index, viewport) {
   return { type };
 }
 
-async function collectDomSummary(page) {
-  return page.evaluate(() => {
+const BODY_TEXT_PREVIEW_LENGTH = 200;
+const TRUNCATION_MARKER = " …[TRUNCATED]";
+const LINK_IMAGE_LIMIT = 100;
+
+async function collectDomSummary(page, { fullText }) {
+  return page.evaluate(({ bodyTextLimit, linkImageLimit, fullText }) => {
     const visible = (element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
     };
-    const links = [...document.querySelectorAll("a")].filter(visible).slice(0, 100).map((link) => ({
+    const allLinks = [...document.querySelectorAll("a")].filter(visible);
+    const links = allLinks.slice(0, linkImageLimit).map((link) => ({
       text: (link.innerText || link.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ").slice(0, 160),
       href: link.href,
     }));
+    const rawBodyText = (document.body?.innerText || "").trim().replace(/\s+/g, " ");
+    const bodyTextTruncated = !fullText && rawBodyText.length > bodyTextLimit;
+    const bodyText = fullText
+      ? rawBodyText
+      : rawBodyText.slice(0, bodyTextLimit).trimEnd() + (bodyTextTruncated ? " …[TRUNCATED]" : "");
+    const allImages = [...document.images];
     return {
-      bodyText: (document.body?.innerText || "").trim().replace(/\s+/g, " ").slice(0, 5000),
+      bodyText,
+      bodyTextTruncated,
       visibleLinks: links,
+      visibleLinksOmitted: Math.max(0, allLinks.length - links.length),
       forms: document.querySelectorAll("form").length,
-      images: [...document.images].map((image) => ({ src: image.currentSrc || image.src, alt: image.alt, complete: image.complete, naturalWidth: image.naturalWidth })).slice(0, 100),
+      images: allImages.slice(0, linkImageLimit).map((image) => ({ src: image.currentSrc || image.src, alt: image.alt, complete: image.complete, naturalWidth: image.naturalWidth })),
+      imagesOmitted: Math.max(0, allImages.length - linkImageLimit),
       documentWidth: document.documentElement.scrollWidth,
       documentHeight: document.documentElement.scrollHeight,
     };
-  });
+  }, { bodyTextLimit: BODY_TEXT_PREVIEW_LENGTH, linkImageLimit: LINK_IMAGE_LIMIT, fullText });
 }
 
 async function collectRuntimeSummary(page) {
@@ -262,11 +286,6 @@ async function main() {
   const cliOptions = parseArgs(process.argv.slice(2));
   const options = await resolveExecutionOptions(cliOptions);
   const collector = await loadCollector(options.collectorPath);
-  if (options.profile && options.browser !== "chromium") {
-    throw new Error("Persistent profiles are supported only with Chromium; omit --profile for Firefox");
-  }
-  if (options.headed) assertHeadedEnvironment();
-
   const outputDir = path.resolve(options.outputDir);
   await fs.mkdir(outputDir, { recursive: true });
   const playwright = resolvePlaywright();
@@ -279,9 +298,15 @@ async function main() {
   const browserType = playwright[options.browser];
   if (!browserType?.launch) throw new Error(`Playwright does not expose the ${options.browser} browser type`);
   const executablePath = resolveExecutablePath(browserType, options.browser, options.executablePath);
-  const launchArgs = options.browser === "chromium"
-    ? ["--no-sandbox", ...(options.profile ? persistentProfileArgs() : []), ...localLaunchArgs(options.url, options.localMap)]
-    : [];
+  if (options.headed) assertHeadedEnvironment();
+  // Hostname mapping relies on --host-resolver-rules, which only exists in
+  // Chromium; Firefox must rely on the operating system's name resolution.
+  const localArgs = options.browser === "chromium" ? localLaunchArgs(options.url, options.localMap) : [];
+  const launchArgs = [
+    ...(options.browser === "chromium" ? ["--no-sandbox"] : []),
+    ...(options.profile ? persistentProfileArgs(options.browser) : []),
+    ...localArgs,
+  ];
   const launchOptions = { headless: !options.headed, args: launchArgs };
   if (executablePath) launchOptions.executablePath = executablePath;
 
@@ -318,7 +343,9 @@ async function main() {
       waitMs: options.waitMs,
       timeout: options.timeout,
       executablePath,
-      localMap: options.localMap,
+      localMapRequested: options.localMap,
+      localMapApplied: localArgs.length > 0,
+      fullText: options.fullText,
       ignoreHttpsErrors: options.ignoreHttpsErrors,
       failOnErrors: options.failOnErrors,
       headed: options.headed,
@@ -327,7 +354,6 @@ async function main() {
       collector: collector ? path.basename(collector.path) : null,
     },
     viewports: [],
-    errors: [],
   };
 
   try {
@@ -387,7 +413,7 @@ async function main() {
       item.title = await page.title().catch(() => null);
       item.finalUrl = page.url();
       item.runtime = await collectRuntimeSummary(page).catch((error) => ({ error: String(error.message || error) }));
-      item.domSummary = await collectDomSummary(page).catch((error) => ({ error: String(error.message || error) }));
+      item.domSummary = await collectDomSummary(page, { fullText: options.fullText }).catch((error) => ({ error: String(error.message || error) }));
       report.viewports.push(item);
       await page.close();
       if (!persistentContext) await context.close();

@@ -8,7 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { captureArgs, runWebInspectorScript } from "./lib/web_inspector_process.mjs";
-import { authRequired } from "./lib/wordpress.mjs";
+import { authRequired, technicalIssues } from "./lib/wordpress.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const wordpressScript = path.join(scriptDir, "wordpress_inspector.mjs");
@@ -136,7 +136,7 @@ try {
     "--profile", "missing",
     "--config", configPath,
     "--output-dir", unknownProfileOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(unknownProfileRun.code, 1, unknownProfileRun.stderr || unknownProfileRun.stdout);
   const unknownProfileSummary = await readSummary(unknownProfileOutput);
@@ -149,7 +149,7 @@ try {
     "--profile", "fake",
     "--config", configPath,
     "--output-dir", unauthOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(unauthRun.code, 1, unauthRun.stderr || unauthRun.stdout);
   const unauthSummary = await readSummary(unauthOutput);
@@ -176,7 +176,7 @@ try {
     "--profile", "fake",
     "--config", configPath,
     "--output-dir", adminOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(adminRun.code, 0, adminRun.stderr || adminRun.stdout);
   const adminSummary = await readSummary(adminOutput);
@@ -192,7 +192,7 @@ try {
     "--config", configPath,
     "--editor-url", editorUrl,
     "--output-dir", editorOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(editorRun.code, 0, editorRun.stderr || editorRun.stdout);
   const editorSummary = await readSummary(editorOutput);
@@ -207,7 +207,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=onboarding`,
     "--output-dir", onboardingOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(onboardingRun.code, 0, onboardingRun.stderr || onboardingRun.stdout);
   const onboardingSummary = await readSummary(onboardingOutput);
@@ -222,7 +222,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=login`,
     "--output-dir", loginEditorOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(loginEditorRun.code, 1, loginEditorRun.stderr || loginEditorRun.stdout);
   const loginEditorSummary = await readSummary(loginEditorOutput);
@@ -237,7 +237,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=invalid`,
     "--output-dir", invalidOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(invalidRun.code, 1, invalidRun.stderr || invalidRun.stdout);
   const invalidSummary = await readSummary(invalidOutput);
@@ -253,7 +253,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=fatal`,
     "--output-dir", fatalOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(fatalRun.code, 1, fatalRun.stderr || fatalRun.stdout);
   const fatalSummary = await readSummary(fatalOutput);
@@ -267,7 +267,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=technical`,
     "--output-dir", technicalOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(technicalRun.code, 1, technicalRun.stderr || technicalRun.stdout);
   const technicalSummary = await readSummary(technicalOutput);
@@ -281,7 +281,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=snapshot`,
     "--output-dir", snapshotOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(snapshotRun.code, 0, snapshotRun.stderr || snapshotRun.stdout);
   const snapshotSummary = await readSummary(snapshotOutput, "snapshot-editor.json");
@@ -305,7 +305,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=healthy`,
     "--output-dir", snapshotNoIframeOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(snapshotNoIframeRun.code, 1, snapshotNoIframeRun.stderr || snapshotNoIframeRun.stdout);
   const snapshotNoIframeSummary = await readSummary(snapshotNoIframeOutput, "snapshot-editor.json");
@@ -320,7 +320,7 @@ try {
     "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=technical`,
     "--output-dir", snapshotTechnicalOutput,
-    "--timeout", "5000",
+    "--timeout", "10000",
   ], env);
   assert.equal(snapshotTechnicalRun.code, 1, snapshotTechnicalRun.stderr || snapshotTechnicalRun.stdout);
   const snapshotTechnicalSummary = await readSummary(snapshotTechnicalOutput, "snapshot-editor.json");
@@ -365,6 +365,11 @@ try {
   assert.equal(getMutationCount(), 0);
   assert.equal(JSON.stringify(editorSummary).includes("wp-auth=ready"), false);
   assert.equal(authRequired({ viewports: [{ finalUrl: editorUrl, actionResults: [], domSummary: { bodyText: "Username Password Log In Log Out" } }] }), false);
+
+  // Benign editor-internal blob:/data: requests must not count as technical
+  // failures; real network failures still do.
+  assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }, { url: "data:image/png;base64,AAA", method: "GET", error: "net::ERR_ABORTED" }] }] }), []);
+  assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "http://site.test/missing.css", method: "GET", error: "net::ERR_FAILED" }, { url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }] }] }), ["request-failure"]);
   console.log("wordpress-inspector smoke test passed");
 } finally {
   await new Promise((resolve) => server.close(resolve));

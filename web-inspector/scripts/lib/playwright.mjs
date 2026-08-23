@@ -80,10 +80,12 @@ export function localLaunchArgs(url, enabled) {
   return [];
 }
 
-export function persistentProfileArgs() {
+export function persistentProfileArgs(browserName) {
   // Chromium normally discards session cookies when a persistent context exits.
   // Keep session state in an explicitly selected persistent profile while still
-  // keeping the profile opt-in.
+  // keeping the profile opt-in. Firefox persists cookies in its real on-disk
+  // profile and takes no extra launch argument.
+  if (browserName === "firefox") return [];
   return ["--persist-session-cookies"];
 }
 

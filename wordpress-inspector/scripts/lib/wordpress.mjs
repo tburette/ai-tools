@@ -105,7 +105,9 @@ export function technicalIssues(report) {
     if (item.navigationError) issues.push("navigation");
     if (item.pageErrors?.some((error) => !/^action \d+:/i.test(String(error)))) issues.push("page-error");
     if (item.console?.some(({ type }) => type === "error")) issues.push("console-error");
-    if (item.failedRequests?.length) issues.push("request-failure");
+    // blob:/data: URLs never touch the network; editors create and revoke them
+    // routinely (media previews), so their ERR_ABORTED is benign noise.
+    if (item.failedRequests?.some(({ url }) => !/^(?:blob|data):/i.test(String(url)))) issues.push("request-failure");
     if (item.failedResponses?.length) issues.push("response-error");
   }
   return [...new Set(issues)];

@@ -37,10 +37,11 @@ function usage(message) {
   node scripts/wordpress_inspector.mjs check-admin [options]
   node scripts/wordpress_inspector.mjs check-editor --editor-url <url> [options]
   node scripts/wordpress_inspector.mjs snapshot-editor --editor-url <url> [options]
+  node scripts/wordpress_inspector.mjs find-post --slug <slug> [--post-type page|post] [options]
 
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
-  --profile <name>                Web Inspector persistent profile (required)
+  --profile <name>                Web Inspector persistent profile (required except find-post)
   --config <path>                 Forward Web Inspector config override
   --output-dir <path>             Artifact directory (default: /tmp/wordpress-inspector/<timestamp>)
   --headed                        Forward headed capture mode
@@ -54,8 +55,8 @@ Shared options:
 
 function parseArgs(argv) {
   const command = argv.shift();
-  if (!command || !["authenticate", "check-admin", "check-editor", "snapshot-editor"].includes(command)) {
-    throw new Error(`Unknown command "${command ?? ""}"; expected authenticate, check-admin, check-editor, or snapshot-editor`);
+  if (!command || !["authenticate", "check-admin", "check-editor", "snapshot-editor", "find-post"].includes(command)) {
+    throw new Error(`Unknown command "${command ?? ""}"; expected authenticate, check-admin, check-editor, snapshot-editor, or find-post`);
   }
   const options = {
     baseUrl: null,
@@ -69,9 +70,11 @@ function parseArgs(argv) {
     timeout: 30000,
     timeoutSpecified: false,
     editorUrl: null,
+    slug: null,
+    postType: "page",
   };
   const positional = [];
-  const valueOptions = new Set(["base-url", "profile", "config", "output-dir", "timeout", "editor-url"]);
+  const valueOptions = new Set(["base-url", "profile", "config", "output-dir", "timeout", "editor-url", "slug", "post-type"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -99,6 +102,8 @@ function parseArgs(argv) {
         options.timeoutSpecified = true;
       }
       else if (key === "editor-url") options.editorUrl = value;
+      else if (key === "slug") options.slug = value;
+      else if (key === "post-type") options.postType = value;
     } else throw new Error(`Unknown option --${key}`);
   }
   if (positional.length) throw new Error("Unexpected positional arguments");
@@ -135,6 +140,7 @@ function editorActions() {
   // Keep this order in sync with classifyEditor(): the classifier refers to
   // action indexes in the generic Web Inspector report (3 = shell, 4 = canvas,
   // 5-7 = invalid/recovery/missing indicators, and 8 = fatal editor error).
+  // TODO: replace this positional-index coupling with named action ids.
   return [
     { type: "assertNotVisible", selector: SELECTORS.loginForm },
     { type: "assertNotVisible", selector: SELECTORS.loginUser },
@@ -436,12 +442,68 @@ async function writeSummary(result) {
   console.log(JSON.stringify({ ...result.summary, summary: result.summaryPath }, null, 2));
 }
 
+const FIND_POST_TYPES = new Set(["page", "post"]);
+
+// Resolve a slug to a post ID using the public REST API. This is a plain
+// read-only GET: it needs no browser, profile, or authentication, but it can
+// only see publicly readable content (drafts/private posts stay invisible).
+async function findPost({ baseUrl, slug, postType, timeout }) {
+  if (!slug) throw new Error("--slug is required for find-post");
+  if (!FIND_POST_TYPES.has(postType)) {
+    throw new Error(`--post-type must be one of: ${[...FIND_POST_TYPES].join(", ")}`);
+  }
+  const endpoint = buildBaseUrl(baseUrl, `/wp-json/wp/v2/${postType}s`);
+  const query = `?slug=${encodeURIComponent(slug)}&_fields=id,link,slug,status,title`;
+  let response;
+  try {
+    response = await fetch(`${endpoint}${query}`, { signal: AbortSignal.timeout(timeout) });
+  } catch (error) {
+    throw new Error(`Could not query the WordPress REST API at ${endpoint}: ${error.message}`, { cause: error });
+  }
+  if (!response.ok) {
+    throw new Error(`The WordPress REST API returned HTTP ${response.status} for ${endpoint}`);
+  }
+  const matches = await response.json();
+  const post = Array.isArray(matches) ? matches[0] : null;
+  return {
+    command: "find-post",
+    baseUrl,
+    slug,
+    postType,
+    found: Boolean(post),
+    ...(post ? {
+      post: {
+        id: post.id,
+        slug: post.slug,
+        status: post.status,
+        link: post.link,
+        title: post.title?.rendered ?? null,
+      },
+      editorUrl: buildBaseUrl(baseUrl, `wp-admin/post.php?post=${post.id}&action=edit`),
+    } : {}),
+    limitations: ["Resolution uses the public REST API; draft or private content requires an authenticated method."],
+  };
+}
+
 async function main() {
   // `main` validates the target and dispatches the public commands.
   // `authenticate` opens the visible profile first; editor/admin commands go
   // through runCheck() and then emit a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
   const baseUrl = normalizeBaseUrl(parsed.baseUrl);
+
+  if (parsed.command === "find-post") {
+    const result = await findPost({
+      baseUrl,
+      slug: parsed.slug,
+      postType: parsed.postType,
+      timeout: parsed.timeout,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.found) process.exitCode = 1;
+    return;
+  }
+
   if (!parsed.profile) throw new Error("--profile is required");
   const editorUrl = isEditorCommand(parsed.command) ? normalizeEditorUrl(baseUrl, parsed.editorUrl) : null;
   if (!isEditorCommand(parsed.command) && parsed.editorUrl) throw new Error("--editor-url is only valid with editor commands");

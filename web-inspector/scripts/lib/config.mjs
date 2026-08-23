@@ -62,8 +62,8 @@ function validateConfig(value, configPath) {
     validateProfileName(name);
     if (!isPlainObject(profile)) throw new Error(`Profile "${name}" must be an object: ${configPath}`);
     assertOnlyKeys(profile, new Set(["browser"]), `Profile "${name}"`);
-    if (profile.browser !== "chromium") {
-      throw new Error(`Profile "${name}" must declare browser "chromium" in the MVP: ${configPath}`);
+    if (!["chromium", "firefox"].includes(profile.browser)) {
+      throw new Error(`Profile "${name}" must declare browser "chromium" or "firefox": ${configPath}`);
     }
   }
 
@@ -117,9 +117,6 @@ export async function resolveExecutionOptions(cliOptions, env = process.env, hom
       `Profile "${profileName}" is configured for ${configuredBrowser}, `
         + `but --browser ${cliOptions.browser} was requested`,
     );
-  }
-  if (profileName && configuredBrowser !== "chromium") {
-    throw new Error(`Persistent profile "${profileName}" is only supported with Chromium`);
   }
 
   const headed = cliOptions.headedOverride ?? loaded.config.defaults.headed;

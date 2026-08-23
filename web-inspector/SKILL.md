@@ -13,6 +13,8 @@ The runner supports the following workflows. Script paths below are relative to 
 
 - **Render and capture a page.** Capture a viewport screenshot or the entire scrollable page. The command also writes `report.json` with the URL, title, HTTP status, dimensions, links, forms, and image-loading information.
 
+  To keep reports compact for agent consumption, `domSummary.bodyText` defaults to its first 200 characters followed by a ` …[TRUNCATED]` marker (with `bodyTextTruncated: true`), and link/image lists are capped at 100 entries with `visibleLinksOmitted` / `imagesOmitted` counts. Pass `--full-text` to record the complete body text.
+
   The report’s `options` object also records the requested viewports, device profile, full-page mode, wait settings, timeout, executable path, local hostname mapping, HTTPS-error handling, and `--fail-on-errors` setting so a run’s execution settings are reproducible.
 
   ```bash
@@ -83,9 +85,9 @@ The profile must be declared in the versioned JSON configuration before use:
 
 Configuration is resolved in this order: `--config`, `WEB_INSPECTOR_CONFIG`, `${XDG_CONFIG_HOME}/web-inspector/config.json`, then `~/.config/web-inspector/config.json`. A missing file uses built-in headless defaults; malformed or unsupported configuration fails with an actionable error. `--headed` and `--headless` override `defaults.headed` and cannot be combined.
 
-Profile state is resolved in this order: `WEB_INSPECTOR_STATE_DIR`, `${XDG_STATE_HOME}/web-inspector/profiles`, then `~/.local/state/web-inspector/profiles`. State is stored in a dedicated owner-only directory and is never placed in the repository, output directory, or `/tmp` by default. A profile name is an identifier, not a filesystem path. Persistent profiles are Chromium-only in this version; `--browser firefox --profile <name>` fails before launch.
+Profile state is resolved in this order: `WEB_INSPECTOR_STATE_DIR`, `${XDG_STATE_HOME}/web-inspector/profiles`, then `~/.local/state/web-inspector/profiles`. State is stored in a dedicated owner-only directory and is never placed in the repository, output directory, or `/tmp` by default. A profile name is an identifier, not a filesystem path. Profiles support both Chromium and Firefox; the profile's declared browser wins unless `--browser` explicitly requests a different one, which fails with a mismatch error.
 
-Persistent mode retains cookies, local storage, IndexedDB, and other browser state across invocations and across requested viewports. It never imports the user's regular browser profile. Treat a persistent profile as a bearer credential: protect it like a password, do not commit it, and do not print its path or contents in reports. Reports record only the profile name and `persistentContext: true`. Without `--profile`, the runner keeps the existing fresh-context-per-viewport isolation.
+Persistent mode retains cookies, local storage, IndexedDB, and other browser state across invocations and across requested viewports. It never imports the user's regular browser profile. Treat a persistent profile as a bearer credential: protect it like a password, do not commit it, and do not print its path or contents in reports. Reports record only the profile name and `persistentContext: true`. Without `--profile`, the runner keeps the existing fresh-context-per-viewport isolation. Profiles support both engines: declare `"browser": "chromium"` or `"browser": "firefox"` per profile; Chromium additionally persists session cookies via `--persist-session-cookies`, while Firefox relies on its on-disk profile (session-only cookies may not survive restarts there).
 
 For one-time interactive setup, use the generic visible session command:
 
@@ -233,7 +235,7 @@ The runner resolves Playwright in this order:
 
 If resolution fails, report the explicit error and do not silently install dependencies. Use shell escalation for the first Chromium or Firefox launch if the outer sandbox terminates the browser before navigation. Ephemeral runs do not retain browser state. Profile runs intentionally use a dedicated persistent Chromium context; they may retain cookies and storage in that named profile, but the runner never prints or summarizes those values.
 
-For local `localhost` or `*.test` URLs, the runner maps the hostname to `127.0.0.1` by default so local development sites work consistently in isolated environments. Disable that behavior with `--no-local-map` when the host must resolve normally.
+For local `localhost` or `*.test` URLs, the runner maps the hostname to `127.0.0.1` by default so local development sites work consistently in isolated environments. This mapping uses the Chromium-only `--host-resolver-rules` argument; on Firefox the hostname must resolve through the operating system (hosts file or resolver). Reports distinguish `localMapRequested` from `localMapApplied` for exactly this reason. Disable the behavior with `--no-local-map` when the host must resolve normally.
 
 For visual regression work, capture the same URL at the same viewport and compare the new screenshot with the supplied baseline. Do not call a page “responsive” from a desktop screenshot alone.
 

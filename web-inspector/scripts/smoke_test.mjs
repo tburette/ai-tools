@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const captureScript = path.join(scriptDir, "capture_page.mjs");
+const BODY_TEXT_ASSERT_LIMIT = 400;
 
 function pageFor(pathname) {
   const diagnostic = pathname === "/warning"
@@ -23,9 +24,12 @@ function pageFor(pathname) {
   const duplicate = pathname === "/duplicate"
     ? "<p id=\"duplicate\" hidden>Hidden duplicate</p><p id=\"duplicate\">Visible duplicate</p>"
     : "";
+  const longText = pathname === "/longtext"
+    ? `<p>${"Long body text for truncation checks. ".repeat(20)}END-OF-LONG-TEXT</p>`
+    : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web Inspector smoke test</title></head>
-<body><main><h1>Smoke test</h1><button id="open">Open</button><p id="message" hidden>Ready</p><p id="delayed" hidden>Late warning</p>${duplicate}</main>
+<body><main><h1>Smoke test</h1><button id="open">Open</button><p id="message" hidden>Ready</p><p id="delayed" hidden>Late warning</p>${duplicate}${longText}</main>
 <script>
 ${diagnostic}
 ${delayed}
@@ -93,7 +97,21 @@ try {
   assert.equal(warningReport.options.timeout, 5000);
   if (browser === "chromium") assert.equal(warningReport.options.executablePath, null);
   else assert.match(warningReport.options.executablePath, /firefox/);
-  assert.equal(warningReport.options.localMap, true);
+  assert.equal(warningReport.options.localMapRequested, true);
+  // The fixture URL uses 127.0.0.1, which localLaunchArgs intentionally does
+  // not map; only localhost/*.test hostnames get a resolver rule.
+  assert.equal(warningReport.options.localMapApplied, false);
+
+  if (browser === "chromium") {
+    const mappedDir = path.join(outputRoot, "local-map");
+    const mappedRun = await runCapture(`${baseUrl.replace("127.0.0.1", "localhost")}/warning`, [
+      "--wait-until", "domcontentloaded",
+      "--wait-ms", "0",
+      "--output-dir", mappedDir,
+    ]);
+    assert.equal(mappedRun.code, 0, mappedRun.stderr || mappedRun.stdout);
+    assert.equal((await readReport(mappedDir)).options.localMapApplied, true);
+  }
   assert.equal(warningReport.options.ignoreHttpsErrors, false);
   assert.equal(warningReport.options.failOnErrors, true);
   assert.equal(warningReport.options.headed, false);
@@ -175,6 +193,41 @@ try {
   if (browser === "chromium") assert.ok(actionReport.viewports[0].runtime.maxTouchPoints > 0);
   assert.equal(actionReport.viewports[0].runtime.devicePixelRatio, 2.75);
   assert.deepEqual(actionReport.viewports[0].runtime.viewport, { width: 320, height: 240 });
+
+  const truncatedDir = path.join(outputRoot, "truncated-text");
+  const truncatedRun = await runCapture(`${baseUrl}/longtext`, [
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--output-dir", truncatedDir,
+  ]);
+  assert.equal(truncatedRun.code, 0, truncatedRun.stderr || truncatedRun.stdout);
+  const truncatedSummary = (await readReport(truncatedDir)).viewports[0].domSummary;
+  assert.equal(truncatedSummary.bodyTextTruncated, true);
+  assert.ok(truncatedSummary.bodyText.length < BODY_TEXT_ASSERT_LIMIT);
+  assert.match(truncatedSummary.bodyText, /…\[TRUNCATED\]$/);
+
+  const fullTextDir = path.join(outputRoot, "full-text");
+  const fullTextRun = await runCapture(`${baseUrl}/longtext`, [
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--full-text",
+    "--output-dir", fullTextDir,
+  ]);
+  assert.equal(fullTextRun.code, 0, fullTextRun.stderr || fullTextRun.stdout);
+  const fullTextSummary = (await readReport(fullTextDir)).viewports[0].domSummary;
+  assert.equal(fullTextSummary.bodyTextTruncated, false);
+  assert.match(fullTextSummary.bodyText, /END-OF-LONG-TEXT$/);
+  assert.doesNotMatch(fullTextSummary.bodyText, /\[TRUNCATED\]/);
+
+  const badActionJson = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [captureScript, `${baseUrl}/`, "--action", "{not-json"], { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stderr }));
+  });
+  assert.equal(badActionJson.code, 1);
+  assert.match(badActionJson.stderr, /Invalid JSON for --action #1/);
 
   console.log("web-inspector smoke test passed");
 } finally {

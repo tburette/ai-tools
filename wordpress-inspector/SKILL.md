@@ -26,7 +26,17 @@ For an editor check or snapshot:
 
 ## retrieve post ID from frontend url
 
-If you have the address of a page(or post) and want to retrieve its post id and maybe open the gutenberg editor for that page : 
+Preferred: use the read-only `find-post` command, which queries the public REST API and prints the post id plus a ready-to-use editor URL:
+
+```bash
+node scripts/wordpress_inspector.mjs find-post \
+  --base-url http://example.test:8888 \
+  --slug test-lpu-split-section
+```
+
+It accepts `--post-type page|post` (default `page`), exits non-zero when nothing matches, and only sees publicly readable content (drafts/private posts need an authenticated method).
+
+Manual fallback if you prefer the project's own tooling:
 - extract the slug from the url (eg. http://lepaysanurbain.test:8888/test-lpu-split-section/ => test-lpu-split-section)
 - resolve the id  using a wp-env query, for example:
 
@@ -52,7 +62,7 @@ WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
   --profile wp-local
 ```
 
-If there is no valid `WEB_INSPECTOR_SKILL_DIR` and there is no sibling `../wordpress-inspector` directory report the problem to the user, ask him to install web-inspector.
+If there is no valid `WEB_INSPECTOR_SKILL_DIR` and there is no sibling `../web-inspector` directory report the problem to the user, ask him to install web-inspector.
 
 A Web Inspector spawns with `process.execPath` and argument arrays. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshots.
 

@@ -75,6 +75,7 @@ await writeFile(configPath, `${JSON.stringify({
   profiles: {
     persisted: { browser: "chromium" },
     other: { browser: "chromium" },
+    persistedFF: { browser: "firefox" },
   },
 }, null, 2)}\n`, "utf8");
 
@@ -152,13 +153,37 @@ try {
   const otherProfileReport = await readReport(otherProfileDir);
   assert.match(otherProfileReport.viewports[0].domSummary.bodyText, /unauthenticated/);
 
-  const firefoxRun = await runCapture(`${baseUrl}/auth`, [
-    "--browser", "firefox",
-    "--profile", "persisted",
-    "--output-dir", path.join(outputRoot, "firefox"),
+  const firefoxSetDir = path.join(outputRoot, "firefox-set");
+  const firefoxSetRun = await runCapture(`${baseUrl}/set`, [
+    "--profile", "persistedFF",
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--output-dir", firefoxSetDir,
   ], env);
-  assert.equal(firefoxRun.code, 1);
-  assert.match(firefoxRun.stderr, /configured for chromium|only supported with Chromium/i);
+  assert.equal(firefoxSetRun.code, 0, firefoxSetRun.stderr || firefoxSetRun.stdout);
+  const firefoxSetReport = await readReport(firefoxSetDir);
+  assert.equal(firefoxSetReport.options.browser, "firefox");
+  assert.equal(firefoxSetReport.options.persistentContext, true);
+
+  const firefoxAuthDir = path.join(outputRoot, "firefox-auth");
+  const firefoxAuthRun = await runCapture(`${baseUrl}/auth`, [
+    "--profile", "persistedFF",
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--output-dir", firefoxAuthDir,
+  ], env);
+  assert.equal(firefoxAuthRun.code, 0, firefoxAuthRun.stderr || firefoxAuthRun.stdout);
+  const firefoxAuthReport = await readReport(firefoxAuthDir);
+  assert.match(firefoxAuthReport.viewports[0].domSummary.bodyText, /authenticated/);
+  assert.match(firefoxAuthReport.viewports[0].domSummary.bodyText, /ready/);
+
+  const mismatchRun = await runCapture(`${baseUrl}/auth`, [
+    "--browser", "chromium",
+    "--profile", "persistedFF",
+    "--output-dir", path.join(outputRoot, "mismatch"),
+  ], env);
+  assert.equal(mismatchRun.code, 1);
+  assert.match(mismatchRun.stderr, /configured for firefox/);
 
   const unknownProfileRun = await runCapture(`${baseUrl}/auth`, [
     "--profile", "unknown",

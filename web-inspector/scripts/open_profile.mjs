@@ -16,10 +16,10 @@ function usage(message) {
   console.error(`Usage: node scripts/open_profile.mjs <url> --profile <name> [options]
 
 Options:
-  --profile <name>                Declared persistent Chromium profile (required)
+  --profile <name>                Declared persistent profile (required)
   --config <path>                 Read generic Web Inspector configuration from this path
   --timeout <milliseconds>        Close after this time (optional)
-  --executable-path <path>        Chromium executable to launch (advanced)
+  --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
   --no-local-map                  Do not map localhost/*.test to 127.0.0.1
   --help                          Show this help
@@ -120,12 +120,17 @@ async function main() {
   assertHeadedEnvironment();
 
   const playwright = resolvePlaywright();
-  const browserType = playwright.chromium;
-  const executablePath = resolveExecutablePath(browserType, "chromium", cliOptions.executablePath);
+  const browserType = playwright[options.browser];
+  const executablePath = resolveExecutablePath(browserType, options.browser, cliOptions.executablePath);
   const profileDirectory = await prepareProfileDirectory(options.stateRoot, options.profile);
+  // --host-resolver-rules and --persist-session-cookies are Chromium-only
+  // arguments; passing them to the Firefox binary aborts the launch.
+  const chromiumArgs = options.browser === "chromium"
+    ? ["--no-sandbox", ...persistentProfileArgs(options.browser), ...localLaunchArgs(cliOptions.url, cliOptions.localMap)]
+    : [];
   const launchOptions = {
     headless: false,
-    args: ["--no-sandbox", ...persistentProfileArgs(), ...localLaunchArgs(cliOptions.url, cliOptions.localMap)],
+    args: chromiumArgs,
     ignoreHTTPSErrors: cliOptions.ignoreHttpsErrors,
   };
   if (executablePath) launchOptions.executablePath = executablePath;
