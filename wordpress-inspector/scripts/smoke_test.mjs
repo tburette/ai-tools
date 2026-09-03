@@ -366,10 +366,10 @@ try {
   const snapshotBlocks = JSON.parse(await readFile(snapshotSummary.artifacts.blocks.path, "utf8"));
   assert.equal(snapshotBlocks.blocks[0].innerBlocks[0].name, "core/paragraph");
   assert.equal(await readFile(snapshotSummary.artifacts.source.path, "utf8"), "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph --><p>Snapshot fixture</p><!-- /wp:paragraph --></div><!-- /wp:group -->");
-  assert.equal(snapshotSummary.artifacts.blocksTree.lineCount, 3);
+  assert.equal(snapshotSummary.artifacts.blocksTree.lineCount, 4);
   assert.equal(
     await readFile(snapshotSummary.artifacts.blocksTree.path, "utf8"),
-    "page=1 postType=page\ngroup\n└─ paragraph [content: Snapshot fixture]\n",
+    "page=1 postType=page\n.\n└── group\n    └── paragraph [content: Snapshot fixture]\n",
   );
 
   const snapshotNoIframeOutput = path.join(outputRoot, "editor-snapshot-no-iframe");
@@ -441,7 +441,7 @@ try {
   assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }, { url: "data:image/png;base64,AAA", method: "GET", error: "net::ERR_ABORTED" }] }] }), []);
   assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "http://site.test/missing.css", method: "GET", error: "net::ERR_FAILED" }, { url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }] }] }), ["request-failure"]);
 
-  // blocks.txt ascii tree rendering (root blocks have no connector)
+  // blocks.txt ascii tree rendering (GNU tree style: connecting lines everywhere, root no indent)
   assert.equal(
     formatBlocksTree({
       postType: "page",
@@ -455,10 +455,11 @@ try {
       ],
     }),
     "page=1 postType=page\n" +
-      "group\n" +
-      "├─ paragraph [content: Hello world]\n" +
-      "└─ plugin/hero [invalid] .alpha.beta [level: 2]\n" +
-      "image [url: " + "x".repeat(59) + "…]\n",
+      ".\n" +
+      "├── group\n" +
+      "│   ├── paragraph [content: Hello world]\n" +
+      "│   └── plugin/hero [invalid] .alpha.beta [level: 2]\n" +
+      "└── image [url: " + "x".repeat(59) + "…]\n",
   );
 
   console.log("wordpress-inspector smoke test passed");

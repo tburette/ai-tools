@@ -169,7 +169,7 @@ On success, the output directory contains:
 
 - `rendered-iframe.png` is a screenshot of the complete iframe document.
 - `blocks.json` is the Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`.
-- `blocks.txt` is a compact ASCII tree of the same blocks, showing each block's type (with the `core/` prefix stripped), its user-assigned CSS classes (`.className`), its `[invalid]` marker when a block failed validation, and one representative attribute (preferring content-like value). This is a shorter, human-readable view and does not replace `blocks.json`.
+- `blocks.txt` is a compact ASCII tree of the same blocks. This is a shorter, human-readable view and does not replace `blocks.json`.
 - `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is. A Site Editor page may not expose the source code editing view (`core/editor` source selector); in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE`.
 - `snapshot-editor.json` references these artifact files : `renderedIframe`, `blocks`, `blocksTree`, and `source` along with records sizes, dimensions, and a source hash.
 

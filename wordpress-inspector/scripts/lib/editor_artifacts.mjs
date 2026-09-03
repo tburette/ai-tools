@@ -293,34 +293,32 @@ function pickKeyAttribute(attributes) {
   return "";
 }
 
-function blockLine(block, connector) {
+function blockLine(block) {
   const marker = block.valid === false ? " [invalid]" : "";
-  return `${connector}${shortName(block.name)}${marker}${classNameLabel(block.attributes)}${pickKeyAttribute(block.attributes)}`;
+  return `${shortName(block.name)}${marker}${classNameLabel(block.attributes)}${pickKeyAttribute(block.attributes)}`;
 }
 
-function connector(isLast) {
-  return isLast ? "└─ " : "├─ ";
-}
-
-function renderChildren(children, prefix, lines) {
-  children.forEach((block, index) => {
-    const isLast = index === children.length - 1;
-    lines.push(blockLine(block, `${prefix}${connector(isLast)}`));
-    if (block.innerBlocks?.length) {
-      renderChildren(block.innerBlocks, `${prefix}${isLast ? "  " : "│ "}`, lines);
-    }
-  });
-}
+const TREE_MID = "├── ";
+const TREE_END = "└── ";
+const TREE_PIPE = "│   ";
+const TREE_BLANK = "    ";
 
 export function formatBlocksTree({ blocks, postType, postId }) {
   const lines = [];
   if (postId != null) {
     lines.push(postType ? `page=${postId} postType=${postType}` : `page=${postId}`);
   }
-  for (const block of blocks ?? []) {
-    lines.push(blockLine(block, ""));
-    if (block.innerBlocks?.length) renderChildren(block.innerBlocks, "", lines);
-  }
+  lines.push(".");
+  const walk = (items, prefix) => {
+    items.forEach((block, index) => {
+      const isLast = index === items.length - 1;
+      lines.push(`${prefix}${isLast ? TREE_END : TREE_MID}${blockLine(block)}`);
+      if (block.innerBlocks?.length) {
+        walk(block.innerBlocks, `${prefix}${isLast ? TREE_BLANK : TREE_PIPE}`);
+      }
+    });
+  };
+  walk(blocks ?? [], "");
   return `${lines.join("\n")}\n`;
 }
 
