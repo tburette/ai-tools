@@ -46,3 +46,8 @@
   navigation, template, template part, etc. — not just `post.php` and
   `site-editor.php`. The URL validation in `normalizeEditorUrl` and the
   SKILL.md documentation will need updating.
+
+- A shorter representation of the blocks structure in the file output. It will not replace the 
+  snapshot-editor/blocks.json representation but be another (shorter) representation. Represent the 
+  blocks structure as an ascii tree with some basic info for each block such as the type (name),
+  classes, key attribute,..; not too much to still be readable but enough to be useful.
