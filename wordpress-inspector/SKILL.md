@@ -121,7 +121,9 @@ node scripts/wordpress_inspector.mjs check-editor \
   --output-dir /tmp/wordpress-inspector/editor
 ```
 
-`check-editor` only accepts the Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary endpoints. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those yourself (`find-post` may help).
+`check-editor` only accepts the Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary endpoints. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those yourself (`find-post` may help). The site editor routes (`site-editor.php`) cover templates, template parts (direct `?p=/wp_template_part/...` URLs), navigation, and styles; `check-editor` inspects any of them once direct, editable content is targeted.
+
+The editor must be in **visual mode**. `check-editor` detects the editor canvas through the editor's rendering area (an iframe on WordPress 7.x). If the post/page editor is in **text mode** (no rendered canvas/iframe), the "editor canvas visible" check fails and `check-editor` reports `EDITOR_LOAD_FAILED` (and `snapshot-editor` reports `EDITOR_IFRAME_NOT_FOUND`). This tool never switches the editor mode; keep the editor in visual mode before running these commands.
 
 `check-editor` performs full Gutenberg editor health checks:
 
@@ -150,7 +152,7 @@ node scripts/wordpress_inspector.mjs snapshot-editor \
   --output-dir /tmp/wordpress-inspector/snapshot-editor
 ```
 
-`snapshot-editor` only works with iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
+`snapshot-editor` only works with iframe-based Gutenberg and with the editor in visual mode. If it cannot find an accessible editor iframe (for example when the post/page editor is in text mode), it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
 
 On success, the output directory contains:
 
