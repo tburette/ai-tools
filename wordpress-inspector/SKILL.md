@@ -20,7 +20,7 @@ Use one stable, explicit profile name for the whole workflow, it is needed to ke
 
 ## Retrieve post ID from frontend URL
 
-`find-post` queries the public REST API and prints the post id plus a ready-to-use editor URL:
+`find-post` resolves a slug to a post id and a ready-to-use editor URL. Without a profile it queries the public REST API (fast, no browser, only publicly readable content):
 
 ```bash
 node scripts/wordpress_inspector.mjs find-post \
@@ -28,23 +28,28 @@ node scripts/wordpress_inspector.mjs find-post \
   --slug test-lpu-split-section
 ```
 
-It accepts `--post-type page|post` (default `page`), exits non-zero when nothing matches, and only sees publicly readable content (drafts/private posts need an authenticated method).
+Pass `--profile` (the same persistent profile used with `authenticate` ) to resolve non-public content too such as drafts andprivate posts:
 
-Manual fallback if the project uses wp-env:
+```bash
+node scripts/wordpress_inspector.mjs find-post \
+  --base-url http://example.test:8888 \
+  --slug my-draft-page \
+  --profile wp-local
+```
+
+It accepts `--post-type page|post` (default `page`). It exits non-zero when nothing matches or the lookup could not complete. Output includes `method` (`public` or `authenticated`) and `classification` (`FOUND`, `NOT_FOUND`, `AUTH_REQUIRED`, or `TECHNICAL_ERRORS`).
+
+For info, there is another way if you have access to wp-cli:
 
 - extract the slug from the url (eg. http://lepaysanurbain.test:8888/test-lpu-split-section/ => test-lpu-split-section)
-- resolve the id using a wp-cli query, for example if using wp-env:
+- resolve the id using a wp-cli query, (example using wp-env):
 
+```
   wp-env run cli wp -- post list \
    --post_type=page \
    --name=test-lpu-split-section \
    --field=ID
-
-  Or via the authenticated REST API:
-
-  /wp-json/wp/v2/pages?slug=test-lpu-split-section&\_fields=id,link,slug
-
-- the gutenberg page corresponding to it is http://<HOST>/wp-admin/post.php?post=<POST_ID>&action=edit
+```
 
 ## Dependency and installation
 

@@ -14,6 +14,7 @@ import {
   createSummary,
   finalUrl,
   isEditorCommand,
+  isLoginUrl,
   normalizeBaseUrl,
   normalizeEditorUrl,
   technicalIssues,
@@ -37,11 +38,11 @@ function usage(message) {
   node scripts/wordpress_inspector.mjs check-admin [options]
   node scripts/wordpress_inspector.mjs check-editor --editor-url <url> [options]
   node scripts/wordpress_inspector.mjs snapshot-editor --editor-url <url> [options]
-  node scripts/wordpress_inspector.mjs find-post --slug <slug> [--post-type page|post] [options]
+  node scripts/wordpress_inspector.mjs find-post --slug <slug> [--post-type page|post] [--profile <name>] [options]
 
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
-  --profile <name>                Web Inspector persistent profile (required except find-post)
+  --profile <name>                Web Inspector persistent profile (required except find-post, where it enables authenticated lookup)
   --output-dir <path>             Artifact directory (default: /tmp/wordpress-inspector/<timestamp>)
   --headed                        Forward headed capture mode
   --headless                      Force headless capture mode
@@ -435,16 +436,17 @@ async function writeSummary(result) {
 
 const FIND_POST_TYPES = new Set(["page", "post"]);
 
-// Resolve a slug to a post ID using the public REST API. This is a plain
-// read-only GET: it needs no browser, profile, or authentication, but it can
-// only see publicly readable content (drafts/private posts stay invisible).
-async function findPost({ baseUrl, slug, postType, timeout }) {
-  if (!slug) throw new Error("--slug is required for find-post");
-  if (!FIND_POST_TYPES.has(postType)) {
-    throw new Error(`--post-type must be one of: ${[...FIND_POST_TYPES].join(", ")}`);
-  }
-  const endpoint = buildBaseUrl(baseUrl, `/wp-json/wp/v2/${postType}s`);
-  const query = `?slug=${encodeURIComponent(slug)}&_fields=id,link,slug,status,title`;
+const FIND_POST_FIELDS = "id,link,slug,status,title";
+
+function findPostEndpoint(baseUrl, postType) {
+  return buildBaseUrl(baseUrl, `/wp-json/wp/v2/${postType}s`);
+}
+
+// The public path is a plain read-only GET: it needs no browser, profile, or
+// authentication, but it can only see publicly readable content.
+async function findPostPublic({ baseUrl, slug, postType, timeout }) {
+  const endpoint = findPostEndpoint(baseUrl, postType);
+  const query = `?slug=${encodeURIComponent(slug)}&_fields=${FIND_POST_FIELDS}`;
   let response;
   try {
     response = await fetch(`${endpoint}${query}`, { signal: AbortSignal.timeout(timeout) });
@@ -455,13 +457,169 @@ async function findPost({ baseUrl, slug, postType, timeout }) {
     throw new Error(`The WordPress REST API returned HTTP ${response.status} for ${endpoint}`);
   }
   const matches = await response.json();
-  const post = Array.isArray(matches) ? matches[0] : null;
+  return {
+    method: "public",
+    classification: Array.isArray(matches) && matches.length > 0 ? "FOUND" : "NOT_FOUND",
+    matches: Array.isArray(matches) ? matches : [],
+    limitations: [
+      "Resolution uses the public REST API; draft or private content requires --profile for an authenticated lookup.",
+      "The public API cannot distinguish a non-existent slug from one whose content is private; both report NOT_FOUND.",
+    ],
+  };
+}
+
+// A REST error body looks like { code, message, data: { status } }; return a
+// classification-relevant summary or null when the body is not such an object.
+function restErrorFromBody(bodyText) {
+  try {
+    const parsed = JSON.parse(bodyText ?? "");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof parsed.code === "string") {
+      return {
+        code: parsed.code,
+        status: parsed.data?.status ?? null,
+        message: typeof parsed.message === "string" ? parsed.message : null,
+      };
+    }
+  } catch {
+    // Body was not JSON; the caller decides how to report that.
+  }
+  return null;
+}
+
+const REST_AUTH_ERROR_CODES = new Set(["rest_cookie_invalid", "rest_cookie_invalid_nonce", "rest_not_logged_in", "rest_forbidden", "rest_cannot_view"]);
+
+// The authenticated path reuses the persistent browser profile (which holds the
+// WordPress session cookies) to query the REST API through a real browser, so it
+// can also resolve drafts/private content the current user is allowed to read.
+async function findPostAuthenticated({ baseUrl, slug, postType, profile, timeout }) {
+  const endpoint = findPostEndpoint(baseUrl, postType);
+  const query = `?slug=${encodeURIComponent(slug)}&_fields=${FIND_POST_FIELDS}`;
+  const url = `${endpoint}${query}`;
+  const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-findpost-"));
+  let run;
+  try {
+    run = await runWebInspectorScript("capture_page.mjs", captureArgs({
+      url,
+      profile,
+      outputDir,
+      timeout,
+      headed: false,
+      headless: true,
+      waitUntil: "domcontentloaded",
+      waitMs: 0,
+      failOnErrors: false,
+      fullText: true,
+    }));
+  } finally {
+    await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+  }
+  if (!run.report) {
+    return {
+      method: "authenticated",
+      classification: "TECHNICAL_ERRORS",
+      matches: [],
+      warnings: [webInspectorFailureWarning(run)],
+      limitations: ["Authenticated lookup could not produce a Web Inspector report."],
+    };
+  }
+  const viewport = run.report.viewports?.[0] ?? null;
+  const final = viewport?.finalUrl ?? null;
+  const status = viewport?.status ?? null;
+  const bodyText = viewport?.domSummary?.bodyText ?? "";
+
+  const base = { method: "authenticated", matches: [] };
+  if (isLoginUrl(final)) {
+    return {
+      ...base,
+      classification: "AUTH_REQUIRED",
+      finalUrl: final,
+      warnings: ["authentication-required"],
+      limitations: ["Authenticated lookup was redirected to a login route; re-authenticate with the same profile and retry."],
+    };
+  }
+  const restError = restErrorFromBody(bodyText);
+  const statusCode = Number(status);
+  if (restError) {
+    if (REST_AUTH_ERROR_CODES.has(restError.code) || Number(restError.status) === 401 || Number(restError.status) === 403) {
+      return {
+        ...base,
+        classification: "AUTH_REQUIRED",
+        finalUrl: final,
+        status,
+        warnings: ["authentication-required"],
+        limitations: [`The authenticated REST API did not grant read access (${restError.code || `HTTP ${restError.status}`}); re-authenticate with the same profile and retry.`],
+      };
+    }
+    return {
+      ...base,
+      classification: "TECHNICAL_ERRORS",
+      finalUrl: final,
+      status,
+      warnings: [restError.code],
+      limitations: [`The authenticated REST API returned an error: ${restError.message ?? restError.code ?? `HTTP ${status}`}.`],
+    };
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    // Some setups return an HTML error page for an unauthorized REST read; the
+    // plain HTTP status is still a clear authentication/permission signal.
+    return {
+      ...base,
+      classification: "AUTH_REQUIRED",
+      finalUrl: final,
+      status,
+      warnings: ["authentication-required"],
+      limitations: [`The authenticated REST API returned HTTP ${status} for an unauthorized read; re-authenticate with the same profile and retry.`],
+    };
+  }
+  let matches;
+  try {
+    matches = JSON.parse(bodyText);
+  } catch (error) {
+    return {
+      ...base,
+      classification: "TECHNICAL_ERRORS",
+      finalUrl: final,
+      status,
+      warnings: error.message ? [String(error.message)] : [],
+      limitations: ["The authenticated REST API did not return a JSON array.", `HTTP ${status ?? "unknown"}, final URL ${final ?? "unknown"}.`],
+    };
+  }
+  if (!Array.isArray(matches)) {
+    return {
+      ...base,
+      classification: "TECHNICAL_ERRORS",
+      finalUrl: final,
+      status,
+      limitations: [`The authenticated REST API returned a non-array body of type ${typeof matches}; expected a JSON array.`],
+    };
+  }
+  return {
+    ...base,
+    classification: matches.length > 0 ? "FOUND" : "NOT_FOUND",
+    finalUrl: final,
+    status,
+    matches,
+  };
+}
+
+async function findPost({ baseUrl, slug, postType, profile, timeout }) {
+  if (!slug) throw new Error("--slug is required for find-post");
+  if (!FIND_POST_TYPES.has(postType)) {
+    throw new Error(`--post-type must be one of: ${[...FIND_POST_TYPES].join(", ")}`);
+  }
+  const source = profile ? await findPostAuthenticated({ baseUrl, slug, postType, profile, timeout }) : await findPostPublic({ baseUrl, slug, postType, timeout });
+  const matches = Array.isArray(source.matches) ? source.matches : [];
+  const post = matches[0] ?? null;
   return {
     command: "find-post",
     baseUrl,
     slug,
     postType,
-    found: Boolean(post),
+    method: source.method,
+    classification: source.classification,
+    found: source.classification === "FOUND",
+    ...(source.finalUrl !== undefined ? { finalUrl: source.finalUrl } : {}),
+    ...(source.status !== undefined ? { httpStatus: source.status } : {}),
     ...(post ? {
       post: {
         id: post.id,
@@ -472,7 +630,8 @@ async function findPost({ baseUrl, slug, postType, timeout }) {
       },
       editorUrl: buildBaseUrl(baseUrl, `wp-admin/post.php?post=${post.id}&action=edit`),
     } : {}),
-    limitations: ["Resolution uses the public REST API; draft or private content requires an authenticated method."],
+    ...(source.warnings?.length ? { warnings: source.warnings } : {}),
+    limitations: source.limitations ?? [],
   };
 }
 
@@ -488,10 +647,11 @@ async function main() {
       baseUrl,
       slug: parsed.slug,
       postType: parsed.postType,
+      profile: parsed.profile,
       timeout: parsed.timeout,
     });
     console.log(JSON.stringify(result, null, 2));
-    if (!result.found) process.exitCode = 1;
+    if (result.classification !== "FOUND") process.exitCode = 1;
     return;
   }
 

@@ -18,6 +18,28 @@ function loginPage() {
 }
 
 function pageFor(requestUrl, authenticated) {
+  if (requestUrl.pathname.startsWith("/wp-json/")) {
+    // A REST API route. Mimic WordPress: private content is invisible to the
+    // public REST API (a rest error / empty result), while published content
+    // is readable by anyone and drafts/private become visible when logged in.
+    const slug = requestUrl.searchParams.get("slug");
+    const postType = requestUrl.pathname.split("/").pop();
+    if (postType === "pages" && slug === "my-draft-page" && !authenticated) {
+      // Private content is invisible to the public REST API.
+      return JSON.stringify({ code: "rest_forbidden", message: "Sorry, you are not allowed to do that.", data: { status: 403 } });
+    }
+    if (postType === "pages" && slug === "my-draft-page") {
+      return JSON.stringify([{ id: 42, slug: "my-draft-page", status: "private", link: "/my-draft-page/", title: { rendered: "My Draft Page" } }]);
+    }
+    if (postType === "pages" && slug === "public-page") {
+      return JSON.stringify([{ id: 7, slug: "public-page", status: "publish", link: "/public-page/", title: { rendered: "Public Page" } }]);
+    }
+    if (postType === "pages" && slug === "error-page") {
+      // A non-JSON body exercises the technical-error classification.
+      return "<!doctype html><html><body><h1>Gateway error</h1></body></html>";
+    }
+    return JSON.stringify([]);
+  }
   if (requestUrl.pathname === "/set-session") {
     return `<!doctype html><html><body><main>session seeded</main></body></html>`;
   }
@@ -62,8 +84,11 @@ function startServer() {
     if (request.method !== "GET") mutationCount += 1;
     const requestUrl = new URL(request.url, "http://127.0.0.1");
     const authenticated = request.headers.cookie?.includes("wp-auth=ready") ?? false;
+    const isJson = requestUrl.pathname.startsWith("/wp-json/");
     if (requestUrl.pathname === "/set-session") response.setHeader("set-cookie", "wp-auth=ready; Path=/; Max-Age=3600");
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.writeHead(200, {
+      "content-type": isJson ? "application/json; charset=utf-8" : "text/html; charset=utf-8",
+    });
     response.end(pageFor(requestUrl, authenticated));
   });
   return new Promise((resolve, reject) => {
@@ -131,6 +156,95 @@ try {
     failOnErrors: true,
   }), { env });
   assert.equal(seedRun.code, 0, seedRun.stderr || seedRun.stdout);
+
+  // find-post without a profile uses the public REST API and cannot see
+  // draft/private content (the fixture returns an empty array for it).
+  const findPublicRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "my-draft-page",
+    "--output-dir", path.join(outputRoot, "find-public"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findPublicRun.code, 1, findPublicRun.stderr || findPublicRun.stdout);
+  const findPublic = JSON.parse(findPublicRun.stdout);
+  assert.equal(findPublic.classification, "NOT_FOUND");
+  assert.equal(findPublic.method, "public");
+
+  // Public find-post resolves publicly readable content.
+  const findPublicFoundRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "public-page",
+    "--output-dir", path.join(outputRoot, "find-public-found"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findPublicFoundRun.code, 0, `stderr=${findPublicFoundRun.stderr} stdout=${findPublicFoundRun.stdout}`);
+  const findPublicFound = JSON.parse(findPublicFoundRun.stdout);
+  assert.equal(findPublicFound.classification, "FOUND");
+  assert.equal(findPublicFound.method, "public");
+  assert.equal(findPublicFound.post.id, 7);
+
+  // find-post with the seeded authenticated profile resolves a private draft.
+  const findAuthRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "my-draft-page",
+    "--profile", "fake",
+    "--output-dir", path.join(outputRoot, "find-auth"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findAuthRun.code, 0, findAuthRun.stderr || findAuthRun.stdout);
+  const findAuth = JSON.parse(findAuthRun.stdout);
+  assert.equal(findAuth.classification, "FOUND");
+  assert.equal(findAuth.method, "authenticated");
+  assert.equal(findAuth.found, true);
+  assert.equal(findAuth.post.id, 42);
+  assert.equal(findAuth.post.status, "private");
+  assert.match(findAuth.editorUrl, /post\.php\?post=42&action=edit/);
+
+  // Authenticated find-post with a profile that lacks a session reports
+  // AUTH_REQUIRED (the REST fixture returns a rest_forbidden error).
+  const findAuthRequiredRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "my-draft-page",
+    "--profile", "no-session",
+    "--output-dir", path.join(outputRoot, "find-auth-required"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findAuthRequiredRun.code, 1, findAuthRequiredRun.stderr || findAuthRequiredRun.stdout);
+  const findAuthRequired = JSON.parse(findAuthRequiredRun.stdout);
+  assert.equal(findAuthRequired.classification, "AUTH_REQUIRED");
+  assert.equal(findAuthRequired.method, "authenticated");
+
+  // Authenticated find-post for a slug that does not exist reports NOT_FOUND.
+  const findAuthNotFoundRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "missing-page",
+    "--profile", "fake",
+    "--output-dir", path.join(outputRoot, "find-auth-not-found"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findAuthNotFoundRun.code, 1, findAuthNotFoundRun.stderr || findAuthNotFoundRun.stdout);
+  const findAuthNotFound = JSON.parse(findAuthNotFoundRun.stdout);
+  assert.equal(findAuthNotFound.classification, "NOT_FOUND");
+  assert.equal(findAuthNotFound.method, "authenticated");
+
+  // Authenticated find-post hitting a non-JSON body reports TECHNICAL_ERRORS.
+  const findAuthTechnicalRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "error-page",
+    "--profile", "fake",
+    "--output-dir", path.join(outputRoot, "find-auth-technical"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findAuthTechnicalRun.code, 1, findAuthTechnicalRun.stderr || findAuthTechnicalRun.stdout);
+  const findAuthTechnical = JSON.parse(findAuthTechnicalRun.stdout);
+  assert.equal(findAuthTechnical.classification, "TECHNICAL_ERRORS");
+  assert.equal(findAuthTechnical.method, "authenticated");
 
   const adminOutput = path.join(outputRoot, "authenticated-admin");
   const adminRun = await runCli([
