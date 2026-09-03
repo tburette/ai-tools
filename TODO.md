@@ -34,3 +34,15 @@
 - Profile concurrency: two commands using the same persistent profile at once
   fail deep inside Chromium ("user data directory in use"). Find a way to make
   it reentrant or add a pre-launch lockfile check with an actionable error.
+
+## wordpress-inspector
+
+- Make `find-post` work on non-public content (drafts/private) too if that is possible.
+  Through the web or well published methods only: authenticated REST API or by retrieving the page. No
+  hacks, no wp-cli, no direct database access.
+  The SKILL.md "Retrieve post ID from frontend URL" section will have to be updated accordingly.
+
+- Make `check-editor` work on any content that can be edited by Gutenberg:
+  navigation, template, template part, etc. — not just `post.php` and
+  `site-editor.php`. The URL validation in `normalizeEditorUrl` and the
+  SKILL.md documentation will need updating.
