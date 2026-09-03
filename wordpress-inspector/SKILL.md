@@ -5,17 +5,12 @@ description: Inspect authorized WordPress administration and Gutenberg interface
 
 # WordPress Inspector
 
-Use this skill for read-only inspection of an authorized WordPress site, its wp-admin shell, and an explicit Gutenberg editor URL. It is a thin WordPress adapter over the sibling `web-inspector` skill: browser launch, actions, screenshots, diagnostics, and low-level reports remain in Web Inspector.
+Use this skill for read-only inspection of the wp-admin side of a WordPress site, and especially Gutenberg editor pages. It is a thin WordPress adapter over the sibling `web-inspector`, use that skill directly if you need to perform action such as clicking around, filling forms,..
+This tool is designed to be read-only.
 
-The MVP is deliberately explicit and read-only. It never accepts passwords, submits content changes, saves, publishes, uploads, installs, activates, trashes, or resets WordPress data. A persistent browser profile contains bearer credentials; protect it like a password.
-
-Use one stable, explicit profile name for the whole workflow. If the caller does not provide one, choose a descriptive name once (for example, `wp-local`) and reuse it for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`. Do not infer a different profile from the hostname, workspace, or login form. If a command reports `AUTH_REQUIRED`, follow the authentication recovery workflow below before retrying the original read-only command.
-
-`snapshot-editor` is a WordPress Inspector command ; use the WordPress Inspector commands for Gutenberg-specific snapshots and use Web Inspector directly for generic page captures.
+Use one stable, explicit profile name for the whole workflow, it is needed to keep the credentials. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
 
 ## Standard editor workflow
-
-For an editor check or snapshot:
 
 1. Choose one profile name and keep it unchanged for every command in this workflow.
 2. Use check-admin to see if you have admin access.
@@ -23,10 +18,9 @@ For an editor check or snapshot:
 4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, and `--profile`.
 5. Treat `AUTHENTICATED` or `EDITOR_SNAPSHOT_CAPTURED` as the successful authentication/snapshot result. Report any other classification and its diagnostics without attempting mutation.
 
+## Retrieve post ID from frontend URL
 
-## retrieve post ID from frontend url
-
-Preferred: use the read-only `find-post` command, which queries the public REST API and prints the post id plus a ready-to-use editor URL:
+`find-post` queries the public REST API and prints the post id plus a ready-to-use editor URL:
 
 ```bash
 node scripts/wordpress_inspector.mjs find-post \
@@ -36,22 +30,23 @@ node scripts/wordpress_inspector.mjs find-post \
 
 It accepts `--post-type page|post` (default `page`), exits non-zero when nothing matches, and only sees publicly readable content (drafts/private posts need an authenticated method).
 
-Manual fallback if you prefer the project's own tooling:
+Manual fallback if the project uses wp-env:
+
 - extract the slug from the url (eg. http://lepaysanurbain.test:8888/test-lpu-split-section/ => test-lpu-split-section)
-- resolve the id  using a wp-env query, for example:
+- resolve the id using a wp-cli query, for example if using wp-env:
 
-     npm run env:cli -- post list \
-       --post_type=page \
-       --name=test-lpu-split-section \
-       --field=ID
+  wp-env run cli wp -- post list \
+   --post_type=page \
+   --name=test-lpu-split-section \
+   --field=ID
 
-     Or via the authenticated REST API:
+  Or via the authenticated REST API:
 
-     /wp-json/wp/v2/pages?slug=test-lpu-split-section&_fields=id,link,slug
+  /wp-json/wp/v2/pages?slug=test-lpu-split-section&\_fields=id,link,slug
+
 - the gutenberg page corresponding to it is http://<HOST>/wp-admin/post.php?post=<POST_ID>&action=edit
 
-
-# Dependency and installation
+## Dependency and installation
 
 The adapter resolves `../web-inspector` relative to this directory. It can also use a web-inspector in another directory with the environment variable `WEB_INSPECTOR_SKILL_DIR`:
 
@@ -62,16 +57,16 @@ WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
   --profile wp-local
 ```
 
-If there is no valid `WEB_INSPECTOR_SKILL_DIR` and there is no sibling `../web-inspector` directory report the problem to the user, ask him to install web-inspector.
+If there is no sibling `../web-inspector` and no `WEB_INSPECTOR_SKILL_DIR` report the problem to the user and ask them to install web-inspector.
 
-A Web Inspector spawns with `process.execPath` and argument arrays. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshots.
+A Web Inspector spawns with `process.execPath` and argument arrays. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshot written on disk.
 
 ## Profile setup and authentication
 
 Choose one stable profile name (for example, `wp-local`) and reuse it for
 authentication and subsequent checks.
 
-Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`, never decides whether login succeeded, and never handles credentials:
+Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`:
 
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
@@ -81,11 +76,16 @@ node scripts/wordpress_inspector.mjs authenticate \
   --timeout 300000
 ```
 
-After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Do not ask for or enter credentials yourself. Continue only after the browser has closed and this command's read-only probe has completed.
+After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Continue only after the browser has closed and this command's probe has completed.
 An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
-The command follows the session with a read-only wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headed` to allow showing the actual browser. Use `--headless` with `authenticate` only to receive an explicit error; automated credential bootstrap is intentionally not part of the MVP.
+The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headed` to allow showing the actual browser. Use `--headless` with `authenticate` and a somewhat short timeout only to receive an explicit error.
 
-## Read-only checks
+## Authentication recovery
+
+If any command (`check-admin`, `check-editor`, or `snapshot-editor`) returns `AUTH_REQUIRED`:
+Perform use the `authenticate` command again (make sure `--base-url` and `--profile` are correct). If this fails, stop and tell the user.
+
+## check-admin
 
 Check the admin shell:
 
@@ -97,7 +97,16 @@ node scripts/wordpress_inspector.mjs check-admin \
   --timeout 30000
 ```
 
-Check an explicit Gutenberg editor URL from the same origin:
+`check-admin` verifies the wp-admin shell is accessible and you are logged in:
+
+- Login form absent (`#loginform`)
+- Login username control absent (`#user_login`)
+- Admin shell visible (`#wpcontent`, `#wpbody`, or `#wpadminbar`)
+- Browser diagnostics clear (console errors, failed requests, navigation failures)
+
+## check-editor
+
+Check the status of some Gutenberg content:
 
 ```bash
 node scripts/wordpress_inspector.mjs check-editor \
@@ -107,23 +116,26 @@ node scripts/wordpress_inspector.mjs check-editor \
   --output-dir /tmp/wordpress-inspector/editor
 ```
 
-`check-editor` rejects cross-origin URLs and only accepts the read-only Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary same-origin admin endpoints so a caller cannot accidentally send the browser to a mutation-capable route. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those read-only in the project and pass the resulting URL explicitly.
+`check-editor` only accepts the Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary endpoints. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those yourself (`find-post` may help).
 
-The adapter checks structural, locale-resistant signals:
+`check-editor` performs full Gutenberg editor health checks:
 
-- login route/form absence and wp-admin shell visibility;
-- Gutenberg editor shell and canvas visibility;
-- invalid/unexpected block warnings;
-- missing/unsupported block placeholders;
-- block recovery prompts;
-- editor-level fatal-error indicators;
-- console errors, uncaught page errors, failed requests/responses, navigation failures, and screenshots from Web Inspector.
-
-It may dismiss a visible onboarding close control, but it never clicks mutation controls. A check returning HTTP 200 is not enough to establish editor health.
+- Login form/username absent (authentication verification)
+- Editor shell visible (`.edit-post-visual-editor`, `.edit-site-visual-editor`, or `#editor`)
+- Editor canvas visible (`.edit-post-visual-editor iframe`, `.edit-site-visual-editor iframe`, `.editor-styles-wrapper`, `.block-editor-writing-flow`, `.edit-site-visual-editor__editor-canvas`)
+- Invalid block warning absent (`.block-editor-warning`)
+- Block recovery prompt absent (`.block-editor-block-recovery`, `.block-editor-block-recovery__dialog`)
+- Missing block placeholder absent (`.wp-block-missing`)
+- Fatal editor error absent (`.editor-error`, `.block-editor-error-boundary`)
+- Browser diagnostics clear (console errors, failed requests, navigation failures)
 
 ## Editor snapshots
 
-Use `snapshot-editor` when you need the current editor contents (post/page html source code of the page, an image of what the entire post/page looks like in the editor, the block tree) as machine-readable artifacts:
+Use `snapshot-editor` when you need machine-readable view to the of a Gutenberg page :
+
+- post/page html source code of the page (the wordpress HTML source code with all the HTML comments thingy, not the frontend rendered HTML)
+- an image of what the entire post/page looks like in the editor
+- the block structure as a tree
 
 ```bash
 node scripts/wordpress_inspector.mjs snapshot-editor \
@@ -133,7 +145,7 @@ node scripts/wordpress_inspector.mjs snapshot-editor \
   --output-dir /tmp/wordpress-inspector/snapshot-editor
 ```
 
-The command only works with iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
+`snapshot-editor` only works with iframe-based Gutenberg. If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
 
 On success, the output directory contains:
 
@@ -147,15 +159,24 @@ On success, the output directory contains:
 └── snapshot-editor.json
 ```
 
-`rendered-iframe.png` is a screenshot of the complete iframe document. `blocks.json` is the recursively collected Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`. `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is and is not reconstructed from the block tree. The URL validator also accepts the Site Editor for `check-editor`, but a Site Editor page may not expose the `core/editor` source selector; in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE` rather than silently switching to another source method.
+- `rendered-iframe.png` is a screenshot of the complete iframe document.
+- `blocks.json` is the Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`.
+- `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is. A Site Editor page may not expose the source code editing view (`core/editor` source selector); in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE`.
+- `snapshot-editor.json` references these artifact files : `renderedIframe`, `blocks`, and `source` along with records sizes, dimensions, and a source hash.
 
-The snapshot summary references these files under an `artifacts` object and records sizes, dimensions, and a source hash without embedding the page content. Treat the HTML, block attributes, and screenshot as potentially sensitive site content.
+### Classifications and artifacts
 
-## Classifications and artifacts
+The check summary (`wordpress-summary.json`) and editor snapshot summary (`snapshot-editor.json`) contain :
 
-The check summary (`wordpress-summary.json`) and editor snapshot summary (`snapshot-editor.json`) contain a normalized `targetType` (`authentication`, `wp-admin`, or `gutenberg-editor`), base/final URL, profile name, checks, classification, links to the generic report and screenshots, named warnings (for example `invalid-block-warning`, `block-recovery-prompt`, `missing-block-placeholder`, or `fatal-editor-error`), and limitations. Snapshot summaries additionally reference `renderedIframe`, `blocks`, and `source` artifacts. They intentionally omit profile paths, cookies, storage values, authorization headers, usernames, passwords, and filled form values.
+- a normalized `targetType` (`authentication`, `wp-admin`, or `gutenberg-editor`)
+- base/final URL
+- profile name
+- checks
+- classification (result of the request)
+- links to the generic report and screenshots
+- named warnings (for example `invalid-block-warning`, `block-recovery-prompt`, `missing-block-placeholder`, or `fatal-editor-error`), and limitations.
 
-Classifications are:
+Classification values:
 
 - `AUTHENTICATED` — the expected shell/editor checks passed;
 - `AUTH_REQUIRED` — WordPress returned a login route/form or equivalent expiry signal;
@@ -169,13 +190,12 @@ Classifications are:
 - `EDITOR_SOURCE_UNAVAILABLE` / `EDITOR_SOURCE_INVALID` — the single Gutenberg source selector could not provide a string;
 - `TECHNICAL_ERRORS` — browser or network diagnostics failed.
 
-Authentication expiry is reported separately from a product regression. Rerun `authenticate` for the same explicit site/profile; the adapter never submits credentials automatically.
+Authentication expiry is reported separately.
 
 ## Safety and local-site workflow
 
-Keep profile state under Web Inspector's owner-only state root, outside repositories and output directories. Use `/tmp` for screenshots and reports unless the user requests another artifact location. Do not commit screenshots or profile state. Do not use a personal browser profile, and do not use these Chromium sessions as general browsing profiles (`--no-sandbox` reduces process isolation).
-
-Before a local check, verify that the authorized WordPress environment is already running. Do not edit its project files. A multisite site is an explicit base URL; do not hop to another child host unless it is separately authorized.
+`/tmp` for screenshots and reports unless the user requests another artifact location.
+Do not use a personal browser profile.
 
 ## Validation
 
