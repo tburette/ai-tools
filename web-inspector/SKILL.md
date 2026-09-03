@@ -112,7 +112,7 @@ node scripts/capture_page.mjs http://localhost:3000/ --fail-on-errors --output-d
 ## Advanced
 
 - **Collector**: `--collector <path>` runs a local ES module exporting `collect({ page, viewport, outputDir, timeout })`; result stored in the report's `collector` field. Use only repository-provided collectors you've reviewed. See `REFERENCE.md`.
-- **Persistent profiles / headed mode**: `--profile <name>` + `--config <path>`; visible setup via `open_profile.mjs`. See `REFERENCE.md`.
+- **Persistent profiles / headed mode**: `--profile <name>`; visible setup via `open_profile.mjs`. See `REFERENCE.md`.
 
 ## Workflow
 

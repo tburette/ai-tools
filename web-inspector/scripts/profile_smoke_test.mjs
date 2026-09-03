@@ -2,12 +2,17 @@
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { prepareProfileDirectory, profileLaunchError } from "./lib/profiles.mjs";
+import {
+  prepareProfileDirectory,
+  profileLaunchError,
+  resolveStateRoot,
+  validateProfileName,
+} from "./lib/profiles.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const captureScript = path.join(scriptDir, "capture_page.mjs");
@@ -60,26 +65,21 @@ async function readReport(outputDir) {
 
 const outputRoot = await mkdtemp(path.join(os.tmpdir(), "web-inspector-profile-smoke-"));
 const stateRoot = path.join(outputRoot, "state");
-const configPath = path.join(outputRoot, "config.json");
 const server = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 const env = {
   WEB_INSPECTOR_STATE_DIR: stateRoot,
-  WEB_INSPECTOR_CONFIG: configPath,
 };
 
-await writeFile(configPath, `${JSON.stringify({
-  version: 1,
-  defaults: { headed: false },
-  profiles: {
-    persisted: { browser: "chromium" },
-    other: { browser: "chromium" },
-    persistedFF: { browser: "firefox" },
-  },
-}, null, 2)}\n`, "utf8");
-
 try {
+  assert.equal(resolveStateRoot({ WEB_INSPECTOR_STATE_DIR: "/tmp/state" }, "/home/test"), "/tmp/state");
+  assert.equal(resolveStateRoot({ XDG_STATE_HOME: "/tmp/state-home" }, "/home/test"), "/tmp/state-home/web-inspector/profiles");
+  assert.equal(resolveStateRoot({}, "/home/test"), "/home/test/.local/state/web-inspector/profiles");
+  assert.equal(validateProfileName("local-test"), "local-test");
+  assert.throws(() => validateProfileName("../escape"), /Invalid profile name/);
+  assert.throws(() => validateProfileName("a".repeat(65)), /Invalid profile name/);
+
   const securityStateRoot = path.join(outputRoot, "security-state");
   const secureProfile = await prepareProfileDirectory(securityStateRoot, "secure");
   assert.equal((await lstat(secureProfile)).mode & 0o777, 0o700);
@@ -155,6 +155,7 @@ try {
 
   const firefoxSetDir = path.join(outputRoot, "firefox-set");
   const firefoxSetRun = await runCapture(`${baseUrl}/set`, [
+    "--browser", "firefox",
     "--profile", "persistedFF",
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
@@ -167,6 +168,7 @@ try {
 
   const firefoxAuthDir = path.join(outputRoot, "firefox-auth");
   const firefoxAuthRun = await runCapture(`${baseUrl}/auth`, [
+    "--browser", "firefox",
     "--profile", "persistedFF",
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
@@ -177,20 +179,12 @@ try {
   assert.match(firefoxAuthReport.viewports[0].domSummary.bodyText, /authenticated/);
   assert.match(firefoxAuthReport.viewports[0].domSummary.bodyText, /ready/);
 
-  const mismatchRun = await runCapture(`${baseUrl}/auth`, [
-    "--browser", "chromium",
-    "--profile", "persistedFF",
-    "--output-dir", path.join(outputRoot, "mismatch"),
+  const invalidProfileRun = await runCapture(`${baseUrl}/auth`, [
+    "--profile", "../escape",
+    "--output-dir", path.join(outputRoot, "invalid-profile"),
   ], env);
-  assert.equal(mismatchRun.code, 1);
-  assert.match(mismatchRun.stderr, /configured for firefox/);
-
-  const unknownProfileRun = await runCapture(`${baseUrl}/auth`, [
-    "--profile", "unknown",
-    "--output-dir", path.join(outputRoot, "unknown"),
-  ], env);
-  assert.equal(unknownProfileRun.code, 1);
-  assert.match(unknownProfileRun.stderr, /Unknown profile/);
+  assert.equal(invalidProfileRun.code, 1);
+  assert.match(invalidProfileRun.stderr, /Invalid profile name/);
 
   console.log("web-inspector profile smoke test passed");
 } finally {

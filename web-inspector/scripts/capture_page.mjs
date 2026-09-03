@@ -4,8 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveExecutionOptions, validateProfileName } from "./lib/config.mjs";
-import { prepareProfileDirectory, profileLaunchError } from "./lib/profiles.mjs";
+import {
+  prepareProfileDirectory,
+  profileLaunchError,
+  resolveStateRoot,
+  validateProfileName,
+} from "./lib/profiles.mjs";
 import {
   assertHeadedEnvironment,
   localLaunchArgs,
@@ -22,8 +26,7 @@ Options:
   --browser <name>                Browser engine: chromium or firefox (default: chromium)
   --viewport <width>x<height>     Repeat for multiple viewports (default: 1440x1100)
   --device <name>                 Emulate a Playwright device, e.g. "Pixel 5"
-  --profile <name>                Use a declared persistent Chromium profile
-  --config <path>                 Read generic Web Inspector configuration from this path
+  --profile <name>                Use a named persistent browser profile
   --headed                        Launch with a visible browser window
   --headless                      Force headless mode
   --full-page                    Capture the full scrollable page
@@ -55,7 +58,6 @@ function parseViewport(value) {
 function parseArgs(argv) {
   const options = {
     browser: "chromium",
-    browserExplicit: false,
     viewports: [],
     actions: [],
     collectorPath: null,
@@ -63,7 +65,6 @@ function parseArgs(argv) {
     outputDir: path.join(os.tmpdir(), "web-inspector", new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")),
     device: null,
     profile: null,
-    configPath: null,
     headedOverride: null,
     waitUntil: "networkidle",
     waitMs: 300,
@@ -81,7 +82,6 @@ function parseArgs(argv) {
     "viewport",
     "device",
     "profile",
-    "config",
     "output-dir",
     "action",
     "collector",
@@ -116,11 +116,9 @@ function parseArgs(argv) {
       index += 1;
       if (key === "browser") {
         options.browser = value;
-        options.browserExplicit = true;
       } else if (key === "viewport") options.viewports.push(parseViewport(value));
       else if (key === "device") options.device = value;
       else if (key === "profile") options.profile = validateProfileName(value);
-      else if (key === "config") options.configPath = value;
       else if (key === "action") {
         try {
           options.actions.push(JSON.parse(value));
@@ -284,7 +282,11 @@ async function collectRuntimeSummary(page) {
 
 async function main() {
   const cliOptions = parseArgs(process.argv.slice(2));
-  const options = await resolveExecutionOptions(cliOptions);
+  const options = {
+    ...cliOptions,
+    headed: cliOptions.headedOverride ?? false,
+    stateRoot: resolveStateRoot(),
+  };
   const collector = await loadCollector(options.collectorPath);
   const outputDir = path.resolve(options.outputDir);
   await fs.mkdir(outputDir, { recursive: true });

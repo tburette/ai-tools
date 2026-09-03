@@ -18,9 +18,9 @@ Use one stable, explicit profile name for the whole workflow. If the caller does
 For an editor check or snapshot:
 
 1. Choose one profile name and keep it unchanged for every command in this workflow.
-2. Ensure that profile is declared in the Web Inspector config. If no config exists, create a minimal config at the selected config path before launching the browser; do not place profile state in the repository, output directory, or screenshots directory.
-3. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, `--profile`, and (when used) `--config`.
-4. If the result is `AUTH_REQUIRED`, do not merely tell the user to log in: launch `authenticate` visibly with the same base URL, profile, and config. Tell the user that the dedicated login window is open, ask them to sign in and select **Remember Me** when offered, and tell them to close the window when finished. Wait for the interactive command and its read-only probe to complete, then rerun the original command with the same profile.
+2. Use check-admin to see if you have admin access.
+3. If the result is `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps, then rerun the original command with the same profile.
+4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, and `--profile`.
 5. Treat `AUTHENTICATED` or `EDITOR_SNAPSHOT_CAPTURED` as the successful authentication/snapshot result. Report any other classification and its diagnostics without attempting mutation.
 
 
@@ -68,17 +68,8 @@ A Web Inspector spawns with `process.execPath` and argument arrays. Each command
 
 ## Profile setup and authentication
 
-Declare the profile in a Web Inspector configuration file before using it:
-
-```json
-{
-  "version": 1,
-  "defaults": { "headed": false },
-  "profiles": {
-    "wp-local": { "browser": "chromium" }
-  }
-}
-```
+Choose one stable profile name (for example, `wp-local`) and reuse it for
+authentication and subsequent checks.
 
 Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`, never decides whether login succeeded, and never handles credentials:
 
@@ -86,7 +77,6 @@ Then run the interactive setup command. It always opens a dedicated headed Chrom
 node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
   --profile wp-local \
-  --config ~/.config/web-inspector/config.json \
   --headed \
   --timeout 300000
 ```
@@ -103,7 +93,6 @@ Check the admin shell:
 node scripts/wordpress_inspector.mjs check-admin \
   --base-url http://example.test:8888 \
   --profile wp-local \
-  --config ~/.config/web-inspector/config.json \
   --output-dir /tmp/wordpress-inspector/admin \
   --timeout 30000
 ```
@@ -196,4 +185,4 @@ From this skill directory, run the fixture-based adapter smoke test:
 node scripts/smoke_test.mjs
 ```
 
-It uses a temporary local server and profile, proves authentication classification, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke, configuration, and profile tests separately from `../web-inspector/`.
+It uses a temporary local server and profile, proves authentication classification, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke and profile tests separately from `../web-inspector/`.

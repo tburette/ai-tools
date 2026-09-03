@@ -42,7 +42,6 @@ function usage(message) {
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
   --profile <name>                Web Inspector persistent profile (required except find-post)
-  --config <path>                 Forward Web Inspector config override
   --output-dir <path>             Artifact directory (default: /tmp/wordpress-inspector/<timestamp>)
   --headed                        Forward headed capture mode
   --headless                      Force headless capture mode
@@ -61,7 +60,6 @@ function parseArgs(argv) {
   const options = {
     baseUrl: null,
     profile: null,
-    configPath: null,
     outputDir: null,
     headed: false,
     headless: false,
@@ -74,7 +72,7 @@ function parseArgs(argv) {
     postType: "page",
   };
   const positional = [];
-  const valueOptions = new Set(["base-url", "profile", "config", "output-dir", "timeout", "editor-url", "slug", "post-type"]);
+  const valueOptions = new Set(["base-url", "profile", "output-dir", "timeout", "editor-url", "slug", "post-type"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -95,7 +93,6 @@ function parseArgs(argv) {
       index += 1;
       if (key === "base-url") options.baseUrl = value;
       else if (key === "profile") options.profile = value;
-      else if (key === "config") options.configPath = value;
       else if (key === "output-dir") options.outputDir = value;
       else if (key === "timeout") {
         options.timeout = Number(value);
@@ -164,10 +161,7 @@ function unavailableChecks(names) {
 
 function webInspectorFailureWarning(run) {
   const stderr = String(run?.stderr ?? "");
-  const unknownProfile = stderr.match(/Unknown profile "([A-Za-z0-9][A-Za-z0-9._-]{0,63})"/i);
-  if (unknownProfile) return `web-inspector-configuration: unknown profile "${unknownProfile[1]}"; declare it before use`;
-  if (/Invalid JSON in Web Inspector config/i.test(stderr)) return "web-inspector-configuration: invalid JSON";
-  if (/Unsupported Web Inspector config version/i.test(stderr)) return "web-inspector-configuration: unsupported version";
+  if (/Invalid profile name/i.test(stderr)) return "web-inspector-profile: invalid profile name";
   if (/requires a graphical display|usable display environment/i.test(stderr)) return "web-inspector-runtime: headed mode requires a graphical display";
   if (/Could not resolve Playwright|No usable Firefox executable/i.test(stderr)) return "web-inspector-runtime: compatible Playwright runtime unavailable";
   if (/profile may already be in use|user data directory/i.test(stderr)) return "web-inspector-profile: profile is already in use";
@@ -317,11 +311,10 @@ function authProbeChecks(command, run) {
   ];
 }
 
-async function captureInspection({ url, profile, configPath, outputDir, timeout, headed, headless, actions, collectorPath = null, waitMs }) {
+async function captureInspection({ url, profile, outputDir, timeout, headed, headless, actions, collectorPath = null, waitMs }) {
   return runWebInspectorScript("capture_page.mjs", captureArgs({
     url,
     profile,
-    configPath,
     outputDir,
     timeout,
     headed,
@@ -336,7 +329,7 @@ function summaryFileName(command) {
   return command === "snapshot-editor" ? "snapshot-editor.json" : "wordpress-summary.json";
 }
 
-async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outputDir, timeout, headed, headless }) {
+async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeout, headed, headless }) {
   // Every check is deliberately two-pass: first detect an expired session,
   // then run the admin/editor readiness probe only when the login screen is
   // absent. This keeps AUTH_REQUIRED separate from editor-load failures.
@@ -345,7 +338,6 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
   const authProbe = await captureInspection({
     url,
     profile,
-    configPath,
     outputDir: path.join(outputDir, "auth-probe"),
     timeout,
     headed,
@@ -406,7 +398,6 @@ async function runCheck({ command, baseUrl, editorUrl, profile, configPath, outp
   const run = await captureInspection({
     url,
     profile,
-    configPath,
     outputDir: genericOutputDir,
     timeout,
     headed,
@@ -509,14 +500,12 @@ async function main() {
   if (!isEditorCommand(parsed.command) && parsed.editorUrl) throw new Error("--editor-url is only valid with editor commands");
   if (parsed.command === "authenticate" && parsed.headlessSpecified) throw new Error("authenticate requires a visible browser; do not pass --headless");
   const outputDir = await prepareOutputRoot(parsed.outputDir);
-  const configPath = parsed.configPath ? path.resolve(parsed.configPath) : null;
 
   if (parsed.command === "authenticate") {
     const loginUrl = buildBaseUrl(baseUrl, "wp-login.php");
     const authRun = await runWebInspectorScript("open_profile.mjs", openProfileArgs({
       url: loginUrl,
       profile: parsed.profile,
-      configPath,
       timeout: parsed.timeoutSpecified ? parsed.timeout : null,
     }));
     if (authRun.code !== 0) {
@@ -550,7 +539,6 @@ async function main() {
       baseUrl,
       editorUrl: null,
       profile: parsed.profile,
-      configPath,
       outputDir: path.join(outputDir, "admin-check"),
       timeout: parsed.timeout,
       headed: false,
@@ -581,7 +569,6 @@ async function main() {
     baseUrl,
     editorUrl,
     profile: parsed.profile,
-    configPath,
     outputDir,
     timeout: parsed.timeout,
     headed: parsed.headedSpecified,

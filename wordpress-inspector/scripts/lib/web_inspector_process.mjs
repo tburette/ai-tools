@@ -76,10 +76,9 @@ export async function runWebInspectorScript(scriptName, args, { env = process.en
   });
 }
 
-export function captureArgs({ url, profile, configPath, outputDir, timeout, headed, headless, actions = [], collectorPath = null, waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true }) {
+export function captureArgs({ url, profile, outputDir, timeout, headed, headless, actions = [], collectorPath = null, waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true }) {
   const args = [url, "--output-dir", outputDir, "--timeout", String(timeout), "--wait-until", waitUntil, "--wait-ms", String(waitMs)];
   if (profile) args.push("--profile", profile);
-  if (configPath) args.push("--config", configPath);
   if (collectorPath) args.push("--collector", collectorPath);
   if (headed) args.push("--headed");
   if (headless) args.push("--headless");
@@ -88,9 +87,8 @@ export function captureArgs({ url, profile, configPath, outputDir, timeout, head
   return args;
 }
 
-export function openProfileArgs({ url, profile, configPath, timeout = null }) {
+export function openProfileArgs({ url, profile, timeout = null }) {
   const args = [url, "--profile", profile];
-  if (configPath) args.push("--config", configPath);
   if (timeout !== null) args.push("--timeout", String(timeout));
   return args;
 }

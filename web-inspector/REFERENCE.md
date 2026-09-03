@@ -4,32 +4,18 @@ Implementation details, internal behavior, and platform notes. This document is 
 
 ## Persistent profiles and headed sessions
 
-Normal captures are headless and ephemeral. Opt into a dedicated persistent Chromium profile explicitly:
+Normal captures are headless and ephemeral. Opt into a dedicated persistent browser profile explicitly:
 
 ```bash
 node scripts/capture_page.mjs http://localhost:3000/ \
   --profile lpu-local \
-  --config ~/.config/web-inspector/config.json \
   --output-dir /tmp/web-inspector/profile-check
 ```
 
-The profile must be declared in the versioned JSON configuration:
-
-```json
-{
-  "version": 1,
-  "defaults": { "headed": false },
-  "profiles": {
-    "lpu-local": { "browser": "chromium" }
-  }
-}
-```
-
-### Configuration resolution order
-
-`--config` → `WEB_INSPECTOR_CONFIG` → `${XDG_CONFIG_HOME}/web-inspector/config.json` → `~/.config/web-inspector/config.json`
-
-A missing file uses built-in headless defaults; malformed/unsupported configuration fails with an actionable error. `--headed` and `--headless` override `defaults.headed` and cannot be combined.
+The profile name is a validated identifier, not a filesystem path. Persistent
+profiles are explicitly selected with `--profile`; any valid name can be used,
+and a new profile directory is created when needed. Captures are headless by
+default; use `--headed` or `--headless` to choose the mode explicitly.
 
 ### Profile state resolution order
 
@@ -40,7 +26,7 @@ State is stored in a dedicated owner-only directory; never in the repository, ou
 ### Profile behavior
 
 - A profile name is an identifier, not a filesystem path.
-- Profiles support both Chromium and Firefox; the declared browser wins unless `--browser` requests a different one (fails with mismatch error).
+- Profiles support both Chromium and Firefox; select the browser with `--browser`.
 - Persistent mode retains cookies, localStorage, IndexedDB, and other browser state across invocations. It never imports the user's regular browser profile.
 - Reports record only the profile name and `persistentContext: true` — never the path or contents.
 - Chromium additionally persists session cookies via `--persist-session-cookies`; Firefox relies on its on-disk profile (session-only cookies may not survive restarts).
@@ -118,13 +104,15 @@ Firefox variant:
 WEB_INSPECTOR_BROWSER=firefox node scripts/smoke_test.mjs
 ```
 
-Configuration and persistence checks:
+Persistence checks:
 
 ```bash
-node scripts/config_smoke_test.mjs
 node scripts/profile_smoke_test.mjs
 ```
 
-The profile smoke test uses temporary configuration, state, output, and localhost fixtures. It proves cross-process persistence, separate-profile and ephemeral isolation, viewport reporting, unknown-profile rejection, Firefox rejection, and that cookie values do not enter reports or stdout.
+The profile smoke test uses temporary state, output, and localhost fixtures. It
+proves cross-process persistence, separate-profile and ephemeral isolation,
+viewport reporting, safe profile-name validation, Firefox selection, and that
+cookie values do not enter reports or stdout.
 
 All smoke tests require a usable Playwright installation. Set `PLAYWRIGHT_PACKAGE` when it is not available through normal Node resolution. The smoke tests create and remove their own temporary output and local HTTP server.

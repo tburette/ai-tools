@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 import path from "node:path";
-import { resolveExecutionOptions, validateProfileName } from "./lib/config.mjs";
-import { prepareProfileDirectory, profileLaunchError } from "./lib/profiles.mjs";
+import {
+  prepareProfileDirectory,
+  profileLaunchError,
+  resolveStateRoot,
+  validateProfileName,
+} from "./lib/profiles.mjs";
 import {
   assertHeadedEnvironment,
   localLaunchArgs,
@@ -16,8 +20,7 @@ function usage(message) {
   console.error(`Usage: node scripts/open_profile.mjs <url> --profile <name> [options]
 
 Options:
-  --profile <name>                Declared persistent profile (required)
-  --config <path>                 Read generic Web Inspector configuration from this path
+  --profile <name>                Named persistent browser profile (required)
   --timeout <milliseconds>        Close after this time (optional)
   --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
@@ -30,14 +33,13 @@ Options:
 function parseArgs(argv) {
   const options = {
     profile: null,
-    configPath: null,
     timeout: null,
     executablePath: null,
     localMap: true,
     ignoreHttpsErrors: false,
   };
   const positional = [];
-  const valueOptions = new Set(["profile", "config", "timeout", "executable-path"]);
+  const valueOptions = new Set(["profile", "timeout", "executable-path"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -53,7 +55,6 @@ function parseArgs(argv) {
       if (value == null || value.startsWith("--")) throw new Error(`Missing value for --${key}`);
       index += 1;
       if (key === "profile") options.profile = validateProfileName(value);
-      else if (key === "config") options.configPath = value;
       else if (key === "timeout") options.timeout = Number(value);
       else if (key === "executable-path") options.executablePath = value;
     } else throw new Error(`Unknown option --${key}`);
@@ -98,25 +99,11 @@ function waitForClose(context, timeout) {
 
 async function main() {
   const cliOptions = parseArgs(process.argv.slice(2));
-  const options = await resolveExecutionOptions({
+  const options = {
     browser: "chromium",
-    browserExplicit: false,
-    viewports: [],
-    actions: [],
-    fullPage: false,
-    outputDir: null,
-    device: null,
     profile: cliOptions.profile,
-    configPath: cliOptions.configPath,
-    headedOverride: true,
-    waitUntil: "domcontentloaded",
-    waitMs: 0,
-    timeout: cliOptions.timeout ?? 30000,
-    localMap: cliOptions.localMap,
-    failOnErrors: false,
-    ignoreHttpsErrors: cliOptions.ignoreHttpsErrors,
-    executablePath: cliOptions.executablePath,
-  });
+    stateRoot: resolveStateRoot(),
+  };
   assertHeadedEnvironment();
 
   const playwright = resolvePlaywright();

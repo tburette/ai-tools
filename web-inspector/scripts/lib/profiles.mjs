@@ -1,5 +1,26 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+
+const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+export function validateProfileName(name) {
+  if (typeof name !== "string" || !PROFILE_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid profile name "${name}"; use 1-64 characters matching `
+        + "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+    );
+  }
+  return name;
+}
+
+export function resolveStateRoot(env = process.env, home = os.homedir()) {
+  if (env.WEB_INSPECTOR_STATE_DIR) return path.resolve(env.WEB_INSPECTOR_STATE_DIR);
+  const stateHome = env.XDG_STATE_HOME
+    ? path.resolve(env.XDG_STATE_HOME)
+    : path.join(home, ".local", "state");
+  return path.join(stateHome, "web-inspector", "profiles");
+}
 
 async function ensurePrivateDirectory(directory) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });

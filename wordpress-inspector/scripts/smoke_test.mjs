@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -98,56 +98,20 @@ async function readSummary(outputDir, fileName = "wordpress-summary.json") {
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-smoke-"));
 const stateRoot = path.join(tempRoot, "state");
-const configPath = path.join(tempRoot, "config.json");
 const outputRoot = path.join(tempRoot, "outputs");
 const { server, getMutationCount } = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 const env = {
   WEB_INSPECTOR_STATE_DIR: stateRoot,
-  WEB_INSPECTOR_CONFIG: configPath,
 };
 
-await writeFile(configPath, `${JSON.stringify({
-  version: 1,
-  defaults: { headed: false },
-  profiles: { fake: { browser: "chromium" } },
-}, null, 2)}\n`, "utf8");
-
 try {
-  const authenticateFailureOutput = path.join(outputRoot, "authenticate-failure");
-  const authenticateFailureRun = await runCli([
-    "authenticate",
-    "--base-url", baseUrl,
-    "--profile", "missing",
-    "--config", configPath,
-    "--output-dir", authenticateFailureOutput,
-    "--timeout", "100",
-  ], env);
-  assert.equal(authenticateFailureRun.code, 1, authenticateFailureRun.stderr || authenticateFailureRun.stdout);
-  const authenticateFailureSummary = await readSummary(authenticateFailureOutput);
-  assert.equal(authenticateFailureSummary.classification, "TECHNICAL_ERRORS");
-  assert.match(authenticateFailureSummary.warnings.find((warning) => warning.startsWith("web-inspector-configuration:")), /unknown profile/);
-
-  const unknownProfileOutput = path.join(outputRoot, "unknown-profile");
-  const unknownProfileRun = await runCli([
-    "check-admin",
-    "--base-url", baseUrl,
-    "--profile", "missing",
-    "--config", configPath,
-    "--output-dir", unknownProfileOutput,
-    "--timeout", "10000",
-  ], env);
-  assert.equal(unknownProfileRun.code, 1, unknownProfileRun.stderr || unknownProfileRun.stdout);
-  const unknownProfileSummary = await readSummary(unknownProfileOutput);
-  assert.match(unknownProfileSummary.warnings.find((warning) => warning.startsWith("web-inspector-configuration:")), /unknown profile/);
-
   const unauthOutput = path.join(outputRoot, "unauthenticated-admin");
   const unauthRun = await runCli([
     "check-admin",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--output-dir", unauthOutput,
     "--timeout", "10000",
   ], env);
@@ -160,7 +124,6 @@ try {
   const seedRun = await runWebInspectorScript("capture_page.mjs", captureArgs({
     url: `${baseUrl}/set-session`,
     profile: "fake",
-    configPath,
     outputDir: seedOutput,
     timeout: 5000,
     waitUntil: "domcontentloaded",
@@ -174,7 +137,6 @@ try {
     "check-admin",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--output-dir", adminOutput,
     "--timeout", "10000",
   ], env);
@@ -189,7 +151,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", editorUrl,
     "--output-dir", editorOutput,
     "--timeout", "10000",
@@ -204,7 +165,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=onboarding`,
     "--output-dir", onboardingOutput,
     "--timeout", "10000",
@@ -219,7 +179,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=login`,
     "--output-dir", loginEditorOutput,
     "--timeout", "10000",
@@ -234,7 +193,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=invalid`,
     "--output-dir", invalidOutput,
     "--timeout", "10000",
@@ -250,7 +208,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=fatal`,
     "--output-dir", fatalOutput,
     "--timeout", "10000",
@@ -264,7 +221,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=technical`,
     "--output-dir", technicalOutput,
     "--timeout", "10000",
@@ -278,7 +234,6 @@ try {
     "snapshot-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=snapshot`,
     "--output-dir", snapshotOutput,
     "--timeout", "10000",
@@ -302,7 +257,6 @@ try {
     "snapshot-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=healthy`,
     "--output-dir", snapshotNoIframeOutput,
     "--timeout", "10000",
@@ -317,7 +271,6 @@ try {
     "snapshot-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=technical`,
     "--output-dir", snapshotTechnicalOutput,
     "--timeout", "10000",
@@ -331,7 +284,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", "http://other.example/wp-admin/post.php?action=edit",
     "--output-dir", crossOriginOutput,
   ], env);
@@ -343,7 +295,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/admin-post.php?action=delete`,
     "--output-dir", mutationRouteOutput,
   ], env);
@@ -355,7 +306,6 @@ try {
     "check-editor",
     "--base-url", baseUrl,
     "--profile", "fake",
-    "--config", configPath,
     "--editor-url", `${baseUrl}/wp-admin/post.php?action=edit&action=trash&post=1`,
     "--output-dir", duplicateActionOutput,
   ], env);
