@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { captureArgs, runWebInspectorScript } from "./lib/web_inspector_process.mjs";
 import { authRequired, technicalIssues } from "./lib/wordpress.mjs";
+import { formatBlocksTree } from "./lib/editor_artifacts.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const wordpressScript = path.join(scriptDir, "wordpress_inspector.mjs");
@@ -365,6 +366,11 @@ try {
   const snapshotBlocks = JSON.parse(await readFile(snapshotSummary.artifacts.blocks.path, "utf8"));
   assert.equal(snapshotBlocks.blocks[0].innerBlocks[0].name, "core/paragraph");
   assert.equal(await readFile(snapshotSummary.artifacts.source.path, "utf8"), "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph --><p>Snapshot fixture</p><!-- /wp:paragraph --></div><!-- /wp:group -->");
+  assert.equal(snapshotSummary.artifacts.blocksTree.lineCount, 3);
+  assert.equal(
+    await readFile(snapshotSummary.artifacts.blocksTree.path, "utf8"),
+    "page=1 postType=page\ngroup\n└─ paragraph [content: Snapshot fixture]\n",
+  );
 
   const snapshotNoIframeOutput = path.join(outputRoot, "editor-snapshot-no-iframe");
   const snapshotNoIframeRun = await runCli([
@@ -434,6 +440,27 @@ try {
   // failures; real network failures still do.
   assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }, { url: "data:image/png;base64,AAA", method: "GET", error: "net::ERR_ABORTED" }] }] }), []);
   assert.deepEqual(technicalIssues({ viewports: [{ failedRequests: [{ url: "http://site.test/missing.css", method: "GET", error: "net::ERR_FAILED" }, { url: "blob:http://site.test/abc", method: "GET", error: "net::ERR_ABORTED" }] }] }), ["request-failure"]);
+
+  // blocks.txt ascii tree rendering (root blocks have no connector)
+  assert.equal(
+    formatBlocksTree({
+      postType: "page",
+      postId: 1,
+      blocks: [
+        { clientId: "a", name: "core/group", valid: true, attributes: { layout: "constrained" }, innerBlocks: [
+          { clientId: "b", name: "core/paragraph", valid: true, attributes: { content: "Hello\nworld" }, innerBlocks: [] },
+          { clientId: "c", name: "plugin/hero", valid: false, attributes: { className: "alpha beta", level: 2 }, innerBlocks: [] },
+        ] },
+        { clientId: "d", name: "core/image", valid: true, attributes: { url: "x".repeat(100), alt: "pic" }, innerBlocks: [] },
+      ],
+    }),
+    "page=1 postType=page\n" +
+      "group\n" +
+      "├─ paragraph [content: Hello world]\n" +
+      "└─ plugin/hero [invalid] .alpha.beta [level: 2]\n" +
+      "image [url: " + "x".repeat(59) + "…]\n",
+  );
+
   console.log("wordpress-inspector smoke test passed");
 } finally {
   await new Promise((resolve) => server.close(resolve));

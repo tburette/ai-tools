@@ -247,13 +247,93 @@ function countBlocks(blocks) {
   return blocks.reduce((count, block) => count + 1 + countBlocks(block.innerBlocks ?? []), 0);
 }
 
+const CONTENT_KEYS = ["content", "title", "text", "value", "url", "href", "alt", "label"];
+
+const SKIP_ATTRIBUTES = new Set([
+  "className", "lock", "anchor", "metadata", "style", "layout",
+  "backgroundColor", "textColor", "fontSize", "customClassName", "template",
+]);
+
+const MAX_VALUE_LENGTH = 60;
+
+function shortName(name) {
+  if (!name) return "[unknown]";
+  return name.startsWith("core/") ? name.slice("core/".length) : name;
+}
+
+function formatValue(value) {
+  if (value == null) return null;
+  if (typeof value === "boolean") return value ? "true" : null;
+  if (typeof value === "number") return String(value);
+  if (typeof value !== "string") return null;
+  const flattened = value.replace(/[\r\n]+/g, " ").trim();
+  if (!flattened) return null;
+  return flattened.length > MAX_VALUE_LENGTH ? `${flattened.slice(0, MAX_VALUE_LENGTH - 1)}…` : flattened;
+}
+
+function classNameLabel(attributes) {
+  const className = attributes?.className;
+  if (typeof className !== "string" || !className.trim()) return "";
+  return ` .${className.trim().split(/\s+/).join(".")}`;
+}
+
+function pickKeyAttribute(attributes) {
+  const attrs = attributes ?? {};
+  for (const key of CONTENT_KEYS) {
+    if (key in attrs) {
+      const value = formatValue(attrs[key]);
+      if (value !== null) return ` [${key}: ${value}]`;
+    }
+  }
+  for (const key of Object.keys(attrs)) {
+    if (SKIP_ATTRIBUTES.has(key)) continue;
+    const value = formatValue(attrs[key]);
+    if (value !== null) return ` [${key}: ${value}]`;
+  }
+  return "";
+}
+
+function blockLine(block, connector) {
+  const marker = block.valid === false ? " [invalid]" : "";
+  return `${connector}${shortName(block.name)}${marker}${classNameLabel(block.attributes)}${pickKeyAttribute(block.attributes)}`;
+}
+
+function connector(isLast) {
+  return isLast ? "└─ " : "├─ ";
+}
+
+function renderChildren(children, prefix, lines) {
+  children.forEach((block, index) => {
+    const isLast = index === children.length - 1;
+    lines.push(blockLine(block, `${prefix}${connector(isLast)}`));
+    if (block.innerBlocks?.length) {
+      renderChildren(block.innerBlocks, `${prefix}${isLast ? "  " : "│ "}`, lines);
+    }
+  });
+}
+
+export function formatBlocksTree({ blocks, postType, postId }) {
+  const lines = [];
+  if (postId != null) {
+    lines.push(postType ? `page=${postId} postType=${postType}` : `page=${postId}`);
+  }
+  for (const block of blocks ?? []) {
+    lines.push(blockLine(block, ""));
+    if (block.innerBlocks?.length) renderChildren(block.innerBlocks, "", lines);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 export async function collect({ page, outputDir }) {
   const { iframe, index, details } = await findEditorIframe(page);
   const renderedIframe = await captureRenderedIframe(page, iframe, outputDir);
   renderedIframe.iframeIndex = index;
   const state = await readEditorState(page);
   const blocksPath = path.join(outputDir, "blocks.json");
+  const blocksTreePath = path.join(outputDir, "blocks.txt");
   const sourcePath = path.join(outputDir, "source.html");
+  const blocksTreeContent = formatBlocksTree(state);
+  await fs.writeFile(blocksTreePath, blocksTreeContent, "utf8");
   await fs.writeFile(blocksPath, `${JSON.stringify({
     version: 1,
     postType: state.postType,
@@ -273,6 +353,10 @@ export async function collect({ page, outputDir }) {
       path: blocksPath,
       rootCount: state.blocks.length,
       totalCount: countBlocks(state.blocks),
+    },
+    blocksTree: {
+      path: blocksTreePath,
+      lineCount: blocksTreeContent.split("\n").length - 1,
     },
     source: {
       path: sourcePath,
