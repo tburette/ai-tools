@@ -5,8 +5,11 @@ async function ensurePrivateDirectory(directory) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   if (process.platform === "win32") return;
   try {
-    await fs.chmod(directory, 0o700);
-    const stats = await fs.stat(directory);
+    let stats = await fs.stat(directory);
+    if ((stats.mode & 0o077) !== 0) {
+      await fs.chmod(directory, 0o700);
+      stats = await fs.stat(directory);
+    }
     if ((stats.mode & 0o077) !== 0) {
       throw new Error("owner-only permission check failed");
     }
