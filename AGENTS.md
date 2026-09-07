@@ -9,6 +9,7 @@ This repository is the source for a collection of agent tools, skills, and comma
 - `web-inspector/` is a `SKILL.md`-based Playwright inspection tool. Its Codex metadata is in `agents/openai.yaml`, and its runner, profile commands, and smoke tests are in `scripts/`.
 - `wordpress-inspector/` is a `SKILL.md`-based read-only WordPress/Gutenberg adapter over the sibling `web-inspector/` tool. Its fixture smoke test and CLI are in `scripts/`.
 - `session-search/` is a standalone Node.js skill for searching local Codex and OpenCode session stores. Its runtime requirement and privacy boundary are documented in its `SKILL.md`.
+- `session-extract/` is an experimental skill for dumping the full conversation of a local Codex or OpenCode session from its id.
 - `lastscreenshot/` is a user-local Bash utility. It depends on `xclip` and the user's `~/Pictures/Screenshots` directory, and it writes the path to the last screenshot taken to the clipboard.
 
 Treat each component directory as independently understandable and usable unless its documentation explicitly describes a nested component.
