@@ -30,7 +30,7 @@ node scripts/wordpress_inspector.mjs find-post \
   --slug test-lpu-split-section
 ```
 
-Pass `--profile` (the same persistent profile used with `authenticate` ) to resolve non-public content too such as drafts andprivate posts:
+Pass `--profile` (the same persistent profile used with `authenticate`) to resolve non-public content too, such as drafts and private posts. The authenticated lookup uses a read-only REST GET with `context=edit`, so WordPress can return content the profile's user is allowed to view; it does not use wp-cli or direct database access:
 
 ```bash
 node scripts/wordpress_inspector.mjs find-post \
@@ -39,19 +39,7 @@ node scripts/wordpress_inspector.mjs find-post \
   --profile wp-local
 ```
 
-It accepts `--post-type page|post` (default `page`). It exits non-zero when nothing matches or the lookup could not complete. Output includes `method` (`public` or `authenticated`) and `classification` (`FOUND`, `NOT_FOUND`, `AUTH_REQUIRED`, `BROWSER_LAUNCH_BLOCKED`, or `TECHNICAL_ERRORS`).
-
-For info, there is another way if you have access to wp-cli:
-
-- extract the slug from the url (eg. http://lepaysanurbain.test:8888/test-lpu-split-section/ => test-lpu-split-section)
-- resolve the id using a wp-cli query, (example using wp-env):
-
-```
-  wp-env run cli wp -- post list \
-   --post_type=page \
-   --name=test-lpu-split-section \
-   --field=ID
-```
+It accepts `--post-type page|post` (default `page`). It exits non-zero when nothing matches or the lookup could not complete. Output includes `method` (`public` or `authenticated`) and `classification` (`FOUND`, `NOT_FOUND`, `AUTH_REQUIRED`, `BROWSER_LAUNCH_BLOCKED`, or `TECHNICAL_ERRORS`). Public REST failures include a structured classification, optional `httpStatus`, and diagnostic `warnings`/`limitations`; pass `--profile` when the public API reports `AUTH_REQUIRED` or cannot expose non-public content.
 
 ## Dependency and installation
 

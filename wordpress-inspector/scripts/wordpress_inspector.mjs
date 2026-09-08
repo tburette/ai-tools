@@ -579,25 +579,96 @@ function findPostEndpoint(baseUrl, postType) {
   return buildBaseUrl(baseUrl, `/wp-json/wp/v2/${postType}s`);
 }
 
+function findPostQuery(slug, context = null) {
+  const query = `?slug=${encodeURIComponent(slug)}&_fields=${FIND_POST_FIELDS}`;
+  return context ? `${query}&context=${encodeURIComponent(context)}` : query;
+}
+
 // The public path is a plain read-only GET: it needs no browser, profile, or
 // authentication, but it can only see publicly readable content.
 async function findPostPublic({ baseUrl, slug, postType, timeout }) {
   const endpoint = findPostEndpoint(baseUrl, postType);
-  const query = `?slug=${encodeURIComponent(slug)}&_fields=${FIND_POST_FIELDS}`;
+  const query = findPostQuery(slug);
   let response;
   try {
     response = await fetch(`${endpoint}${query}`, { signal: AbortSignal.timeout(timeout) });
-  } catch (error) {
-    throw new Error(`Could not query the WordPress REST API at ${endpoint}: ${error.message}`, { cause: error });
+  } catch {
+    return {
+      method: "public",
+      classification: "TECHNICAL_ERRORS",
+      matches: [],
+      warnings: ["request-failure"],
+      limitations: [`Could not query the public WordPress REST API at ${endpoint}.`],
+    };
   }
+  let bodyText;
+  try {
+    bodyText = await response.text();
+  } catch {
+    return {
+      method: "public",
+      classification: "TECHNICAL_ERRORS",
+      status: response.status,
+      matches: [],
+      warnings: ["response-error"],
+      limitations: [`The public WordPress REST API response from ${endpoint} could not be read.`],
+    };
+  }
+  const restError = restErrorFromBody(bodyText);
   if (!response.ok) {
-    throw new Error(`The WordPress REST API returned HTTP ${response.status} for ${endpoint}`);
+    const privateContent = response.status === 403 || Number(restError?.status) === 403;
+    const authRequired = response.status === 401 || Number(restError?.status) === 401 || restError?.code === "rest_not_logged_in";
+    return {
+      method: "public",
+      classification: privateContent ? "NOT_FOUND" : authRequired ? "AUTH_REQUIRED" : "TECHNICAL_ERRORS",
+      status: response.status,
+      matches: [],
+      ...(privateContent || authRequired ? { warnings: privateContent ? [] : ["authentication-required"] } : { warnings: ["response-error"] }),
+      limitations: [
+        privateContent
+          ? "The public REST API did not expose this content; draft or private content requires --profile for an authenticated lookup."
+          : authRequired
+            ? "The public REST API requires authentication for this lookup; pass --profile for an authenticated lookup."
+            : `The public WordPress REST API returned HTTP ${response.status} for ${endpoint}.`,
+      ],
+    };
   }
-  const matches = await response.json();
+  let matches;
+  try {
+    matches = JSON.parse(bodyText);
+  } catch {
+    return {
+      method: "public",
+      classification: "TECHNICAL_ERRORS",
+      status: response.status,
+      matches: [],
+      warnings: ["invalid-json"],
+      limitations: ["The public WordPress REST API did not return valid JSON."],
+    };
+  }
+  if (!Array.isArray(matches)) {
+    const privateContent = restError?.code === "rest_forbidden" || Number(restError?.status) === 403;
+    const authRequired = restError?.code === "rest_not_logged_in" || Number(restError?.status) === 401;
+    return {
+      method: "public",
+      classification: privateContent ? "NOT_FOUND" : authRequired ? "AUTH_REQUIRED" : "TECHNICAL_ERRORS",
+      status: response.status,
+      matches: [],
+      ...(privateContent || authRequired ? { warnings: privateContent ? [] : ["authentication-required"] } : { warnings: ["invalid-response"] }),
+      limitations: [
+        privateContent
+          ? "The public REST API cannot distinguish a non-existent slug from content that is private; pass --profile for an authenticated lookup."
+          : authRequired
+            ? "The public REST API requires authentication for this lookup; pass --profile for an authenticated lookup."
+            : "The public WordPress REST API returned an object instead of the expected post array.",
+      ],
+    };
+  }
   return {
     method: "public",
-    classification: Array.isArray(matches) && matches.length > 0 ? "FOUND" : "NOT_FOUND",
-    matches: Array.isArray(matches) ? matches : [],
+    classification: matches.length > 0 ? "FOUND" : "NOT_FOUND",
+    status: response.status,
+    matches,
     limitations: [
       "Resolution uses the public REST API; draft or private content requires --profile for an authenticated lookup.",
       "The public API cannot distinguish a non-existent slug from one whose content is private; both report NOT_FOUND.",
@@ -630,7 +701,9 @@ const REST_AUTH_ERROR_CODES = new Set(["rest_cookie_invalid", "rest_cookie_inval
 // can also resolve drafts/private content the current user is allowed to read.
 async function findPostAuthenticated({ baseUrl, slug, postType, profile, timeout }) {
   const endpoint = findPostEndpoint(baseUrl, postType);
-  const query = `?slug=${encodeURIComponent(slug)}&_fields=${FIND_POST_FIELDS}`;
+  // WordPress requires edit context for collection queries that include
+  // drafts/private posts; the persistent browser profile supplies the session.
+  const query = findPostQuery(slug, "edit");
   const url = `${endpoint}${query}`;
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-findpost-"));
   let run;

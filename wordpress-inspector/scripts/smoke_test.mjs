@@ -25,6 +25,21 @@ function pageFor(requestUrl, authenticated) {
     // is readable by anyone and drafts/private become visible when logged in.
     const slug = requestUrl.searchParams.get("slug");
     const postType = requestUrl.pathname.split("/").pop();
+    if (postType === "pages" && slug === "server-error") {
+      return JSON.stringify({ code: "fixture_server_error", message: "Fixture REST failure.", data: { status: 500 } });
+    }
+    if (postType === "pages" && slug === "login-required-page") {
+      return JSON.stringify({ code: "rest_not_logged_in", message: "Authentication required.", data: { status: 401 } });
+    }
+    if (postType === "pages" && slug === "malformed-page") {
+      // A non-JSON body exercises the public technical-error classification.
+      return "<!doctype html><html><body><h1>Malformed REST response</h1></body></html>";
+    }
+    if (postType === "pages" && slug === "my-draft-page" && authenticated && requestUrl.searchParams.get("context") !== "edit") {
+      // Authenticated collection queries need edit context to include private
+      // content, matching the WordPress REST API behavior under test.
+      return JSON.stringify({ code: "rest_context_required", message: "Edit context is required.", data: { status: 400 } });
+    }
     if (postType === "pages" && slug === "my-draft-page" && !authenticated) {
       // Private content is invisible to the public REST API.
       return JSON.stringify({ code: "rest_forbidden", message: "Sorry, you are not allowed to do that.", data: { status: 403 } });
@@ -107,7 +122,13 @@ function startServer() {
     const authenticated = request.headers.cookie?.includes("wp-auth=ready") ?? false;
     const isJson = requestUrl.pathname.startsWith("/wp-json/");
     if (requestUrl.pathname === "/set-session") response.setHeader("set-cookie", "wp-auth=ready; Path=/; Max-Age=3600");
-    response.writeHead(200, {
+    const jsonSlug = isJson ? requestUrl.searchParams.get("slug") : null;
+    const responseStatus = isJson && jsonSlug === "server-error"
+      ? 500
+      : isJson && jsonSlug === "login-required-page"
+        ? 401
+        : 200;
+    response.writeHead(responseStatus, {
       "content-type": isJson ? "application/json; charset=utf-8" : "text/html; charset=utf-8",
     });
     response.end(pageFor(requestUrl, authenticated));
@@ -493,6 +514,51 @@ try {
   const findPublic = JSON.parse(findPublicRun.stdout);
   assert.equal(findPublic.classification, "NOT_FOUND");
   assert.equal(findPublic.method, "public");
+
+  // Public REST HTTP failures are returned as structured classifications.
+  const findPublicServerErrorRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "server-error",
+    "--output-dir", path.join(outputRoot, "find-public-server-error"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findPublicServerErrorRun.code, 1, findPublicServerErrorRun.stderr || findPublicServerErrorRun.stdout);
+  const findPublicServerError = JSON.parse(findPublicServerErrorRun.stdout);
+  assert.equal(findPublicServerError.classification, "TECHNICAL_ERRORS");
+  assert.equal(findPublicServerError.method, "public");
+  assert.equal(findPublicServerError.httpStatus, 500);
+  assert.deepEqual(findPublicServerError.warnings, ["response-error"]);
+
+  // A public REST authentication error tells the caller to retry with a profile.
+  const findPublicAuthRequiredRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "login-required-page",
+    "--output-dir", path.join(outputRoot, "find-public-auth-required"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findPublicAuthRequiredRun.code, 1, findPublicAuthRequiredRun.stderr || findPublicAuthRequiredRun.stdout);
+  const findPublicAuthRequired = JSON.parse(findPublicAuthRequiredRun.stdout);
+  assert.equal(findPublicAuthRequired.classification, "AUTH_REQUIRED");
+  assert.equal(findPublicAuthRequired.method, "public");
+  assert.equal(findPublicAuthRequired.httpStatus, 401);
+  assert.deepEqual(findPublicAuthRequired.warnings, ["authentication-required"]);
+
+  // A malformed public REST response is also reported in the JSON result.
+  const findPublicMalformedRun = await runCli([
+    "find-post",
+    "--base-url", baseUrl,
+    "--slug", "malformed-page",
+    "--output-dir", path.join(outputRoot, "find-public-malformed"),
+    "--timeout", "10000",
+  ], env);
+  assert.equal(findPublicMalformedRun.code, 1, findPublicMalformedRun.stderr || findPublicMalformedRun.stdout);
+  const findPublicMalformed = JSON.parse(findPublicMalformedRun.stdout);
+  assert.equal(findPublicMalformed.classification, "TECHNICAL_ERRORS");
+  assert.equal(findPublicMalformed.method, "public");
+  assert.equal(findPublicMalformed.httpStatus, 200);
+  assert.deepEqual(findPublicMalformed.warnings, ["invalid-json"]);
 
   // Public find-post resolves publicly readable content.
   const findPublicFoundRun = await runCli([
