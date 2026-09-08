@@ -15,7 +15,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const wordpressScript = path.join(scriptDir, "wordpress_inspector.mjs");
 
 function loginPage() {
-  return `<!doctype html><html><body><form id="loginform"><label>Username <input id="user_login"></label><label>Password <input type="password"></label><button>Log In</button></form></body></html>`;
+  return `<!doctype html><html><body><form id="loginform" method="post" action="/wp-login.php"><label>Username <input id="user_login" name="log"></label><label>Password <input id="user_pass" name="pwd" type="password"></label><button id="wp-submit" type="submit">Log In</button></form></body></html>`;
 }
 
 function pageFor(requestUrl, authenticated) {
@@ -81,9 +81,29 @@ function pageFor(requestUrl, authenticated) {
 
 function startServer() {
   let mutationCount = 0;
-  const server = createServer((request, response) => {
-    if (request.method !== "GET") mutationCount += 1;
+  let loginSubmissionCount = 0;
+  const server = createServer(async (request, response) => {
     const requestUrl = new URL(request.url, "http://127.0.0.1");
+    if (request.method !== "GET") {
+      if (requestUrl.pathname === "/wp-login.php") loginSubmissionCount += 1;
+      else mutationCount += 1;
+    }
+    if (request.method === "POST" && requestUrl.pathname === "/wp-login.php") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const form = new URLSearchParams(body);
+      if (form.get("log") === "fixture-user" && form.get("pwd") === "fixture-password") {
+        response.writeHead(302, {
+          location: "/wp-admin/",
+          "set-cookie": "wp-auth=ready; Path=/; Max-Age=3600",
+        });
+        response.end();
+      } else {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(loginPage());
+      }
+      return;
+    }
     const authenticated = request.headers.cookie?.includes("wp-auth=ready") ?? false;
     const isJson = requestUrl.pathname.startsWith("/wp-json/");
     if (requestUrl.pathname === "/set-session") response.setHeader("set-cookie", "wp-auth=ready; Path=/; Max-Age=3600");
@@ -94,7 +114,11 @@ function startServer() {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve({ server, getMutationCount: () => mutationCount }));
+    server.listen(0, "127.0.0.1", () => resolve({
+      server,
+      getMutationCount: () => mutationCount,
+      getLoginSubmissionCount: () => loginSubmissionCount,
+    }));
   });
 }
 
@@ -125,7 +149,7 @@ async function readSummary(outputDir, fileName = "wordpress-summary.json") {
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-smoke-"));
 const stateRoot = path.join(tempRoot, "state");
 const outputRoot = path.join(tempRoot, "outputs");
-const { server, getMutationCount } = await startServer();
+const { server, getMutationCount, getLoginSubmissionCount } = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 const env = {
@@ -265,6 +289,104 @@ try {
   assert.equal(defaultAuthSummaryPath.startsWith(path.join(os.tmpdir(), "wordpress-inspector-")), true);
   await stat(defaultAuthSummaryPath);
   await rm(path.dirname(defaultAuthSummaryPath), { recursive: true, force: true });
+
+  // Supplying both credentials automates the login form without launching a
+  // headed browser, then verifies the resulting session with check-admin.
+  const automatedOutput = path.join(outputRoot, "authenticate-automated");
+  const automatedRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "automated-auth",
+    "--output-dir", automatedOutput,
+    "--timeout", "10000",
+    "--username", "fixture-user",
+    "--password", "fixture-password",
+  ], env);
+  assert.equal(automatedRun.code, 0, automatedRun.stderr || automatedRun.stdout);
+  const automatedSummary = await readSummary(automatedOutput);
+  assert.equal(automatedSummary.classification, "AUTHENTICATED");
+  assert.equal(automatedSummary.loginAttemptReport, path.join(automatedOutput, "login-attempt", "report.json"));
+  await stat(automatedSummary.loginAttemptReport);
+  await stat(automatedSummary.genericReport);
+  const automatedReport = JSON.parse(await readFile(automatedSummary.loginAttemptReport, "utf8"));
+  assert.equal(automatedReport.options.profile, "automated-auth");
+  assert.equal(automatedReport.options.headed, false);
+  assert.equal(automatedReport.viewports[0].finalUrl, `${baseUrl}/wp-admin/`);
+
+  // The same headless path may take credentials from environment variables,
+  // which avoids putting the password in the command line.
+  const environmentOutput = path.join(outputRoot, "authenticate-environment");
+  const environmentRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "automated-auth-environment",
+    "--output-dir", environmentOutput,
+    "--timeout", "10000",
+  ], {
+    ...env,
+    WORDPRESS_INSPECTOR_USERNAME: "fixture-user",
+    WORDPRESS_INSPECTOR_PASSWORD: "fixture-password",
+  });
+  assert.equal(environmentRun.code, 0, environmentRun.stderr || environmentRun.stdout);
+  const environmentSummary = await readSummary(environmentOutput);
+  assert.equal(environmentSummary.classification, "AUTHENTICATED");
+
+  const invalidAutomatedOutput = path.join(outputRoot, "authenticate-automated-invalid");
+  const invalidAutomatedRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "automated-auth-invalid",
+    "--output-dir", invalidAutomatedOutput,
+    "--timeout", "10000",
+    "--username", "fixture-user",
+    "--password", "wrong-secret",
+  ], env);
+  assert.equal(invalidAutomatedRun.code, 1, invalidAutomatedRun.stderr || invalidAutomatedRun.stdout);
+  const invalidAutomatedSummary = await readSummary(invalidAutomatedOutput);
+  assert.equal(invalidAutomatedSummary.classification, "AUTH_REQUIRED");
+  assert.equal(invalidAutomatedSummary.warnings.includes("automated-login-did-not-authenticate"), true);
+
+  for (const credentials of [
+    ["--username", "fixture-user"],
+    ["--password", "fixture-password"],
+  ]) {
+    const incompleteCredentialsRun = await runCli([
+      "authenticate",
+      "--base-url", baseUrl,
+      ...credentials,
+    ], env);
+    assert.equal(incompleteCredentialsRun.code, 1);
+    assert.match(incompleteCredentialsRun.stderr, /must be provided together/);
+  }
+  const nonAuthenticateCredentialsRun = await runCli([
+    "check-admin",
+    "--base-url", baseUrl,
+    "--username", "fixture-user",
+    "--password", "fixture-password",
+  ], env);
+  assert.equal(nonAuthenticateCredentialsRun.code, 1);
+  assert.match(nonAuthenticateCredentialsRun.stderr, /only valid for authenticate/);
+  const headedAutomatedRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--username", "fixture-user",
+    "--password", "fixture-password",
+    "--headed",
+  ], env);
+  assert.equal(headedAutomatedRun.code, 1);
+  assert.match(headedAutomatedRun.stderr, /always headless/);
+
+  const automatedTextArtifacts = await Promise.all([
+    readFile(path.join(automatedOutput, "wordpress-summary.json"), "utf8"),
+    readFile(path.join(automatedOutput, "login-attempt", "report.json"), "utf8"),
+    readFile(path.join(automatedOutput, "admin-check", "web-inspector", "report.json"), "utf8"),
+    Promise.resolve(automatedRun.stdout),
+    Promise.resolve(automatedRun.stderr),
+  ]);
+  for (const artifact of automatedTextArtifacts) {
+    assert.equal(artifact.includes("fixture-user"), false);
+    assert.equal(artifact.includes("fixture-password"), false);
+  }
 
   const headlessAuthRun = await runCli([
     "authenticate",
@@ -643,6 +765,7 @@ try {
   assert.match(duplicateActionRun.stderr, /supported read-only Gutenberg editor route/);
 
   assert.equal(getMutationCount(), 0);
+  assert.equal(getLoginSubmissionCount(), 3);
   assert.equal(JSON.stringify(editorSummary).includes("wp-auth=ready"), false);
   assert.equal(authRequired({ viewports: [{ finalUrl: editorUrl, actionResults: [], domSummary: { bodyText: "Username Password Log In Log Out" } }] }), false);
 

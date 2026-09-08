@@ -1,12 +1,12 @@
 ---
 name: wordpress-inspector
-description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, Gutenberg health checks, retrieve for a gutenberg editor page the html source content of a post (page,..) and a screenshot of the editing area, authentication-expiry detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
+description: Inspect authorized WordPress administration and Gutenberg interfaces with a dedicated persistent Web Inspector profile. Use for read-only wp-admin checks, Gutenberg health checks, automated or interactive authentication, retrieving for a Gutenberg editor page the HTML source content of a post (page,..) and a screenshot of the editing area, authentication-expiry detection, and local WordPress QA; use web-inspector directly for ordinary public frontend inspection.
 ---
 
 # WordPress Inspector
 
-Use this skill for read-only inspection of the wp-admin side of a WordPress site, and especially Gutenberg editor pages. It is a thin WordPress adapter over the sibling `web-inspector`, use that skill directly if you need to perform action such as clicking around, filling forms,..
-This tool is designed to be read-only.
+Use this skill for read-only inspection of the wp-admin side of a WordPress site, and especially Gutenberg editor pages. It is a thin WordPress adapter over the sibling `web-inspector`; use that skill directly if you need to perform general actions such as clicking around or filling forms.
+This tool is designed to be read-only. The only exception is automated authentication, which submits the supplied credentials to the WordPress login form and does not expose any content-mutation controls.
 
 Browser commands use the permanent Web Inspector profile `default` when `--profile` is omitted. Use `--profile <name>` when you need a separate profile, and keep that name unchanged across authentication and subsequent checks. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
 
@@ -90,7 +90,7 @@ By default, `authenticate` and the subsequent checks use the permanent profile
 `default`. Pass `--profile <name>` to use a separate profile, then reuse that
 name for authentication and subsequent checks.
 
-Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`; no display-mode flag is required:
+When credentials are not available, run the interactive setup command. It opens a dedicated headed Chromium profile at `wp-login.php`; no display-mode flag is required:
 
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
@@ -106,16 +106,38 @@ node scripts/wordpress_inspector.mjs authenticate \
   --output-dir /tmp/wordpress-inspector/auth
 ```
 
-For `authenticate`, the specified directory is the artifact root. It contains `wordpress-summary.json`; the read-only follow-up probe is under `admin-check/auth-probe/` and `admin-check/web-inspector/`. An explicit directory may reuse or overwrite artifacts from an earlier run, so choose a location whose contents can be replaced.
+For `authenticate`, the specified directory is the artifact root. It contains `wordpress-summary.json`; the automated login attempt, when used, is under `login-attempt/`, and the read-only follow-up probe is under `admin-check/auth-probe/` and `admin-check/web-inspector/`. An explicit directory may reuse or overwrite artifacts from an earlier run, so choose a location whose contents can be replaced.
 
 After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Continue only after the browser has closed and this command's probe has completed.
 An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
-The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. `authenticate` is always headed; `--headed` is accepted but optional, while `--headless` is rejected.
+The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Manual `authenticate` is headed by default; `--headed` is accepted but optional, while `--headless` is rejected when no credentials are supplied.
+
+If the authorized login and password are already known, pass both `--username` and `--password` to automate the login. This mode uses the persistent profile headlessly, so it does not open a browser window:
+
+```bash
+node scripts/wordpress_inspector.mjs authenticate \
+  --base-url http://example.test:8888 \
+  --username admin \
+  --password 'replace-with-the-password'
+```
+
+Both options are required together and are valid only for `authenticate`. `--headless` is optional in this mode; `--headed` is rejected. The final result is based on the follow-up `check-admin` probe, so invalid credentials report `AUTH_REQUIRED`. Two-factor authentication, CAPTCHA, SSO, and customized login forms may still require the interactive flow.
+
+To avoid putting the password in shell history, the same values may be provided with `WORDPRESS_INSPECTOR_USERNAME` and `WORDPRESS_INSPECTOR_PASSWORD` instead of the two options:
+
+```bash
+WORDPRESS_INSPECTOR_USERNAME=admin \
+WORDPRESS_INSPECTOR_PASSWORD='replace-with-the-password' \
+node scripts/wordpress_inspector.mjs authenticate \
+  --base-url http://example.test:8888
+```
+
+The adapter does not write credential values to `wordpress-summary.json` or the Web Inspector reports. A CLI password and the generated Web Inspector action arguments can still be visible to local process inspection, so use the environment form when shell-history exposure matters and protect the persistent profile as a credential store.
 
 ## Authentication recovery
 
 If any command (`check-admin`, `check-editor`, or `snapshot-editor`) returns `AUTH_REQUIRED`:
-Perform use the `authenticate` command again with the same `--base-url` and profile choice (the default profile if `--profile` was omitted). If this fails, stop and tell the user.
+Use the `authenticate` command again with the same `--base-url` and profile choice (the default profile if `--profile` was omitted). If this fails, stop and tell the user.
 
 ## check-admin
 
@@ -235,7 +257,7 @@ Authentication expiry is reported separately.
 ## Safety and local-site workflow
 
 `/tmp` for screenshots and reports unless the user requests another artifact location.
-Do not use a personal browser profile.
+Do not use a personal browser profile. Automated authentication submits one login-form POST; all other inspector operations remain read-only and no WordPress content mutation controls are exercised.
 
 ## Validation
 
@@ -245,4 +267,4 @@ From this skill directory, run the fixture-based adapter smoke test:
 node scripts/smoke_test.mjs
 ```
 
-It uses a temporary local server and profiles, proves default-profile authentication, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke and profile tests separately from `../web-inspector/`.
+It uses a temporary local server and profiles, proves default-profile authentication, automated login and credential redaction, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that automated authentication makes only the expected login-form POST with no other mutation request. It removes its temporary artifacts. Run Web Inspector's own smoke and profile tests separately from `../web-inspector/`.

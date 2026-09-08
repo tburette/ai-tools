@@ -46,8 +46,10 @@ Shared options:
   --base-url <url>                WordPress site origin/base URL (required except editor commands with absolute --editor-url)
   --profile <name>                Persistent profile (default: default; find-post without it uses public lookup)
   --output-dir <path>             Artifact directory (default: random temporary directory, e.g. /tmp/wordpress-inspector-XXXXXX)
-  --headed                        Forward headed capture mode (authenticate is headed by default)
-  --headless                      Force headless capture mode (not allowed for authenticate)
+  --headed                        Forward headed capture mode (manual authenticate is headed by default)
+  --headless                      Force headless capture mode (automated authenticate is always headless)
+  --username <name>               Username for automated authenticate (must be paired with --password)
+  --password <value>              Password for automated authenticate (must be paired with --username)
   --timeout <milliseconds>        Navigation/action timeout (default: 30000)
   --editor-url <url>              Same-origin Gutenberg editor URL for editor commands
   --help                          Show this help
@@ -73,9 +75,11 @@ function parseArgs(argv) {
     editorUrl: null,
     slug: null,
     postType: "page",
+    username: null,
+    password: null,
   };
   const positional = [];
-  const valueOptions = new Set(["base-url", "profile", "output-dir", "timeout", "editor-url", "slug", "post-type"]);
+  const valueOptions = new Set(["base-url", "profile", "output-dir", "timeout", "editor-url", "slug", "post-type", "username", "password"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -104,6 +108,8 @@ function parseArgs(argv) {
       else if (key === "editor-url") options.editorUrl = value;
       else if (key === "slug") options.slug = value;
       else if (key === "post-type") options.postType = value;
+      else if (key === "username") options.username = value;
+      else if (key === "password") options.password = value;
     } else throw new Error(`Unknown option --${key}`);
   }
   if (positional.length) throw new Error("Unexpected positional arguments");
@@ -133,6 +139,14 @@ function authProbeActions() {
   return [
     { type: "assertNotVisible", selector: SELECTORS.loginForm },
     { type: "assertNotVisible", selector: SELECTORS.loginUser },
+  ];
+}
+
+function automatedLoginActions(username, password) {
+  return [
+    { type: "fill", selector: SELECTORS.loginUser, value: username },
+    { type: "fill", selector: SELECTORS.loginPassword, value: password },
+    { type: "click", selector: SELECTORS.loginSubmit },
   ];
 }
 
@@ -466,6 +480,74 @@ async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeo
   return { ...run, ...reportedResult, summary, summaryPath: path.join(outputDir, summaryFileName(command)) };
 }
 
+function resolveAutomatedCredentials(parsed) {
+  const cliCredentialsProvided = parsed.username !== null || parsed.password !== null;
+  if (cliCredentialsProvided && parsed.command !== "authenticate") {
+    throw new Error("--username and --password are only valid for authenticate");
+  }
+  if (cliCredentialsProvided) {
+    if (parsed.username === null || parsed.password === null) {
+      throw new Error("--username and --password must be provided together");
+    }
+    if (!parsed.username) throw new Error("--username must not be empty");
+    return { username: parsed.username, password: parsed.password };
+  }
+  if (parsed.command !== "authenticate") return null;
+
+  const username = process.env.WORDPRESS_INSPECTOR_USERNAME ?? null;
+  const password = process.env.WORDPRESS_INSPECTOR_PASSWORD ?? null;
+  if (username === null && password === null) return null;
+  if (username === null || password === null) {
+    throw new Error("WORDPRESS_INSPECTOR_USERNAME and WORDPRESS_INSPECTOR_PASSWORD must be provided together");
+  }
+  if (!username) throw new Error("WORDPRESS_INSPECTOR_USERNAME must not be empty");
+  return { username, password };
+}
+
+async function runAutomatedAuthentication({ baseUrl, profile, outputDir, timeout, username, password }) {
+  const loginRun = await captureInspection({
+    url: buildBaseUrl(baseUrl, "wp-login.php"),
+    profile,
+    outputDir: path.join(outputDir, "login-attempt"),
+    timeout,
+    headed: false,
+    headless: true,
+    actions: automatedLoginActions(username, password),
+    waitMs: 750,
+  });
+  const adminResult = await runCheck({
+    command: "check-admin",
+    baseUrl,
+    editorUrl: null,
+    profile,
+    outputDir: path.join(outputDir, "admin-check"),
+    timeout,
+    headed: false,
+    headless: true,
+  });
+
+  const loginWarnings = [];
+  if (!loginRun.report) {
+    loginWarnings.push(webInspectorFailureWarning(loginRun));
+  } else {
+    if (loginRun.code !== 0) loginWarnings.push("automated-login-attempt-failed");
+    if (isLoginUrl(finalUrl(loginRun.report))) loginWarnings.push("automated-login-did-not-authenticate");
+    for (const issue of technicalIssues(loginRun.report)) loginWarnings.push(`automated-login-${issue}`);
+  }
+  const summary = {
+    ...adminResult.summary,
+    command: "authenticate",
+    loginAttemptReport: loginRun.reportPath,
+    warnings: [...new Set([...adminResult.summary.warnings, ...loginWarnings])],
+    limitations: [
+      "Automated authentication submits the supplied credentials to the WordPress login form; this is the only non-GET request made by authenticate.",
+      "The final authentication status is based on the follow-up read-only wp-admin probe.",
+      "Two-factor authentication, CAPTCHA, SSO, and customized login forms may require manual authentication.",
+    ],
+  };
+  return { ...adminResult, loginAttempt: loginRun, summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
+}
+
 async function writeSummary(result) {
   await fs.writeFile(result.summaryPath, `${JSON.stringify(result.summary, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ ...result.summary, summary: result.summaryPath }, null, 2));
@@ -674,9 +756,11 @@ async function findPost({ baseUrl, slug, postType, profile, timeout }) {
 
 async function main() {
   // `main` validates the target and dispatches the public commands.
-  // `authenticate` opens the visible profile first; editor/admin commands go
-  // through runCheck() and then emit a sanitized summary.
+  // `authenticate` either submits supplied credentials headlessly or opens the
+  // visible profile; editor/admin commands go through runCheck() and then emit
+  // a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
+  const credentials = resolveAutomatedCredentials(parsed);
   const baseUrl = parsed.baseUrl !== null
     ? normalizeBaseUrl(parsed.baseUrl)
     : isEditorCommand(parsed.command)
@@ -699,10 +783,24 @@ async function main() {
   const profile = parsed.profile ?? DEFAULT_PROFILE_NAME;
   const editorUrl = isEditorCommand(parsed.command) ? normalizeEditorUrl(baseUrl, parsed.editorUrl) : null;
   if (!isEditorCommand(parsed.command) && parsed.editorUrl) throw new Error("--editor-url is only valid with editor commands");
-  if (parsed.command === "authenticate" && parsed.headlessSpecified) throw new Error("authenticate requires a visible browser; do not pass --headless");
+  if (credentials && parsed.headedSpecified) throw new Error("automated authenticate is always headless; do not pass --headed");
+  if (parsed.command === "authenticate" && parsed.headlessSpecified && !credentials) throw new Error("authenticate requires a visible browser when credentials are not supplied; do not pass --headless");
   const outputDir = await prepareOutputRoot(parsed.outputDir);
 
   if (parsed.command === "authenticate") {
+    if (credentials) {
+      const result = await runAutomatedAuthentication({
+        baseUrl,
+        profile,
+        outputDir,
+        timeout: parsed.timeout,
+        username: credentials.username,
+        password: credentials.password,
+      });
+      await writeSummary(result);
+      if (result.classification !== "AUTHENTICATED") process.exitCode = 1;
+      return;
+    }
     // open_profile.mjs always launches a headed interactive session. The
     // --headed flag remains accepted for compatibility but is not required.
     const loginUrl = buildBaseUrl(baseUrl, "wp-login.php");
@@ -729,7 +827,7 @@ async function main() {
         warnings: [...new Set([timeoutWarning, webInspectorFailureWarning(authRun)])],
         limitations: [
           "The read-only wp-admin probe was skipped because the interactive profile session did not complete successfully.",
-          "Credentials are entered interactively in the dedicated browser; this command never accepts or stores passwords.",
+          "No credentials were supplied, so authentication was left to the dedicated headed browser.",
         ],
       });
       const result = { summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
@@ -757,7 +855,7 @@ async function main() {
           : []),
       ],
       limitations: [
-        "Credentials are entered interactively in the dedicated browser; this command never accepts or stores passwords.",
+        "No credentials were supplied, so authentication was left to the dedicated headed browser.",
         "Read-only admin probe follows the interactive session.",
       ],
     };
