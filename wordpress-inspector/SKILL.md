@@ -8,14 +8,16 @@ description: Inspect authorized WordPress administration and Gutenberg interface
 Use this skill for read-only inspection of the wp-admin side of a WordPress site, and especially Gutenberg editor pages. It is a thin WordPress adapter over the sibling `web-inspector`, use that skill directly if you need to perform action such as clicking around, filling forms,..
 This tool is designed to be read-only.
 
-Use one stable, explicit profile name for the whole workflow, it is needed to keep the credentials. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
+Browser commands use the permanent Web Inspector profile `default` when `--profile` is omitted. Use `--profile <name>` when you need a separate profile, and keep that name unchanged across authentication and subsequent checks. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
+
+`find-post` is the exception: without `--profile` it uses the public REST API and does not open a browser; pass an explicit profile for an authenticated lookup of non-public content.
 
 ## Standard editor workflow
 
-1. Choose one profile name and keep it unchanged for every command in this workflow.
+1. Use the default profile, or choose one explicit profile name and keep it unchanged for every command in this workflow.
 2. Use check-admin to see if you have admin access.
 3. If the result is `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps, then rerun the original command with the same profile.
-4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, and `--profile`.
+4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url` and `--editor-url`; omit `--profile` for the default profile or pass one explicit profile name.
 5. Treat `AUTHENTICATED` as the successful authentication/admin result, `EDITOR_HEALTHY` as the successful `check-editor` result, and `EDITOR_SNAPSHOT_CAPTURED` as the successful `snapshot-editor` result. Report any other classification and its diagnostics without attempting mutation.
 
 ## Retrieve post ID from frontend URL
@@ -59,7 +61,7 @@ The adapter resolves `../web-inspector` relative to this directory. It can also 
 WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
   node scripts/wordpress_inspector.mjs check-admin \
   --base-url http://example.test \
-  --profile wp-local
+  --output-dir /tmp/wordpress-inspector/admin
 ```
 
 If there is no sibling `../web-inspector` and no `WEB_INSPECTOR_SKILL_DIR` report the problem to the user and ask them to install web-inspector.
@@ -70,29 +72,29 @@ A Web Inspector spawns with `process.execPath` and argument arrays. Each command
 
 This workflow has two independent environment requirements when it runs in a managed Codex sandbox:
 
-1. **Profile storage.** Commands using `--profile` must be able to create and reuse the persistent browser profile. If the default state directory is unavailable, set one stable, writable directory for the whole workflow:
+1. **Profile storage.** Browser commands use the persistent profile `default` unless `--profile` selects another name. The profile must be able to create and reuse its state directory. If the default state directory is unavailable, set one stable, writable directory for the whole workflow:
 
 ```bash
 WEB_INSPECTOR_STATE_DIR=/tmp/wordpress-inspector/state
 ```
 
-2. **Browser launch permission.** Chromium may be blocked by the execution sandbox even when no persistent profile is used. The direct browser diagnostic may contain `sandbox_host_linux` or `Operation not permitted`; the WordPress adapter reports this as `BROWSER_LAUNCH_BLOCKED`.
+2. **Browser launch permission.** Chromium may be blocked by the execution sandbox even when the default persistent profile is used. The direct browser diagnostic may contain `sandbox_host_linux` or `Operation not permitted`; the WordPress adapter reports this as `BROWSER_LAUNCH_BLOCKED`.
 
-For this environment, the command that launches Chromium must request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`). The state-directory setting fixes profile storage; it does not grant Chromium permission to start. Elevated permission fixes browser startup; it does not select or preserve the profile directory. Keep the same profile name and state directory for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`.
+For this environment, the command that launches Chromium must request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`). The state-directory setting fixes profile storage; it does not grant Chromium permission to start. Elevated permission fixes browser startup; it does not select or preserve the profile directory. Keep the same profile name and state directory for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`; do not run two commands concurrently with the same profile.
 
 Do not change the project’s `.wp-env.json` to solve this problem: WordPress and Docker configuration do not control the Codex process sandbox.
 
 ## Profile setup and authentication
 
-Choose one stable profile name (for example, `wp-local`) and reuse it for
-authentication and subsequent checks.
+By default, `authenticate` and the subsequent checks use the permanent profile
+`default`. Pass `--profile <name>` to use a separate profile, then reuse that
+name for authentication and subsequent checks.
 
 Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`:
 
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
-  --profile wp-local \
   --headed \
   --timeout 300000
 ```
@@ -102,7 +104,6 @@ By default, `authenticate` stores its reports in a newly created random temporar
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
-  --profile wp-local \
   --headed \
   --output-dir /tmp/wordpress-inspector/auth
 ```
@@ -116,7 +117,7 @@ The command follows the session with a wp-admin probe and reports `AUTHENTICATED
 ## Authentication recovery
 
 If any command (`check-admin`, `check-editor`, or `snapshot-editor`) returns `AUTH_REQUIRED`:
-Perform use the `authenticate` command again (make sure `--base-url` and `--profile` are correct). If this fails, stop and tell the user.
+Perform use the `authenticate` command again with the same `--base-url` and profile choice (the default profile if `--profile` was omitted). If this fails, stop and tell the user.
 
 ## check-admin
 
@@ -125,7 +126,6 @@ Check the admin shell:
 ```bash
 node scripts/wordpress_inspector.mjs check-admin \
   --base-url http://example.test:8888 \
-  --profile wp-local \
   --output-dir /tmp/wordpress-inspector/admin \
   --timeout 30000
 ```
@@ -144,7 +144,6 @@ Check the status of some Gutenberg content:
 ```bash
 node scripts/wordpress_inspector.mjs check-editor \
   --base-url http://example.test:8888 \
-  --profile wp-local \
   --editor-url 'http://example.test:8888/wp-admin/post.php?post=123&action=edit' \
   --output-dir /tmp/wordpress-inspector/editor
 ```
@@ -177,7 +176,6 @@ Use `snapshot-editor` when you need machine-readable view to the source of a Wor
 ```bash
 node scripts/wordpress_inspector.mjs snapshot-editor \
   --base-url http://example.test:8888 \
-  --profile wp-local \
   --editor-url 'http://example.test:8888/wp-admin/post.php?post=123&action=edit' \
   --output-dir /tmp/wordpress-inspector/snapshot-editor
 ```
@@ -246,4 +244,4 @@ From this skill directory, run the fixture-based adapter smoke test:
 node scripts/smoke_test.mjs
 ```
 
-It uses a temporary local server and profile, proves authentication classification, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke and profile tests separately from `../web-inspector/`.
+It uses a temporary local server and profiles, proves default-profile authentication, healthy/invalid editor classification, iframe snapshot artifacts, no-iframe failure, same-origin enforcement, report redaction, and that no non-GET mutation request occurs. It removes its temporary artifacts. Run Web Inspector's own smoke and profile tests separately from `../web-inspector/`.

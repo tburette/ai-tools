@@ -55,7 +55,7 @@ function runCapture(url, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [captureScript, url, ...browser, ...args], {
       cwd: path.dirname(scriptDir),
-      env: process.env,
+      env: { ...process.env, WEB_INSPECTOR_STATE_DIR: stateRoot },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -76,6 +76,7 @@ async function readReport(outputDir) {
 }
 
 const outputRoot = await mkdtemp(path.join(os.tmpdir(), "web-inspector-smoke-"));
+const stateRoot = path.join(outputRoot, "state");
 const server = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -115,8 +116,8 @@ try {
   assert.equal(warningReport.options.ignoreHttpsErrors, false);
   assert.equal(warningReport.options.failOnErrors, true);
   assert.equal(warningReport.options.headed, false);
-  assert.equal(warningReport.options.profile, null);
-  assert.equal(warningReport.options.persistentContext, false);
+  assert.equal(warningReport.options.profile, "default");
+  assert.equal(warningReport.options.persistentContext, true);
   assert.equal(warningReport.viewports[0].console[0]?.type, "warning");
 
   const defaultDeviceDir = path.join(outputRoot, "default-device");

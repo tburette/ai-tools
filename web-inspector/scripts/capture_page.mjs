@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  DEFAULT_PROFILE_NAME,
   prepareProfileDirectory,
   profileLaunchError,
   resolveStateRoot,
@@ -26,7 +27,7 @@ Options:
   --browser <name>                Browser engine: chromium or firefox (default: chromium)
   --viewport <width>x<height>     Repeat for multiple viewports (default: 1440x1100)
   --device <name>                 Emulate a Playwright device, e.g. "Pixel 5"
-  --profile <name>                Use a named persistent browser profile
+  --profile <name>                Use a named persistent browser profile (default: default)
   --headed                        Launch with a visible browser window
   --headless                      Force headless mode
   --full-page                    Capture the full scrollable page
@@ -64,7 +65,7 @@ function parseArgs(argv) {
     fullPage: false,
     outputDir: path.join(os.tmpdir(), "web-inspector", new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")),
     device: null,
-    profile: null,
+    profile: DEFAULT_PROFILE_NAME,
     headedOverride: null,
     waitUntil: "networkidle",
     waitMs: 300,

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const defaultWebInspectorDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../web-inspector");
 
+export const DEFAULT_PROFILE_NAME = "default";
+
 export function resolveWebInspectorDir(env = process.env) {
   const candidate = path.resolve(env.WEB_INSPECTOR_SKILL_DIR || defaultWebInspectorDir);
   return candidate;
@@ -76,7 +78,7 @@ export async function runWebInspectorScript(scriptName, args, { env = process.en
   });
 }
 
-export function captureArgs({ url, profile, outputDir, timeout, headed, headless, actions = [], collectorPath = null, waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true, fullText = false }) {
+export function captureArgs({ url, profile = DEFAULT_PROFILE_NAME, outputDir, timeout, headed, headless, actions = [], collectorPath = null, waitUntil = "domcontentloaded", waitMs = 0, failOnErrors = true, fullText = false }) {
   const args = [url, "--output-dir", outputDir, "--timeout", String(timeout), "--wait-until", waitUntil, "--wait-ms", String(waitMs)];
   if (profile) args.push("--profile", profile);
   if (collectorPath) args.push("--collector", collectorPath);
@@ -88,7 +90,7 @@ export function captureArgs({ url, profile, outputDir, timeout, headed, headless
   return args;
 }
 
-export function openProfileArgs({ url, profile, timeout = null }) {
+export function openProfileArgs({ url, profile = DEFAULT_PROFILE_NAME, timeout = null }) {
   const args = [url, "--profile", profile];
   if (timeout !== null) args.push("--timeout", String(timeout));
   return args;

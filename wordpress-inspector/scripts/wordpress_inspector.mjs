@@ -20,6 +20,7 @@ import {
   technicalIssues,
 } from "./lib/wordpress.mjs";
 import {
+  DEFAULT_PROFILE_NAME,
   captureArgs,
   openProfileArgs,
   runWebInspectorScript,
@@ -42,7 +43,7 @@ function usage(message) {
 
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
-  --profile <name>                Web Inspector persistent profile (required except find-post, where it enables authenticated lookup)
+  --profile <name>                Persistent profile (default: default; find-post without it uses public lookup)
   --output-dir <path>             Artifact directory (default: random temporary directory, e.g. /tmp/wordpress-inspector-XXXXXX)
   --headed                        Forward headed capture mode
   --headless                      Force headless capture mode
@@ -690,7 +691,7 @@ async function main() {
     return;
   }
 
-  if (!parsed.profile) throw new Error("--profile is required");
+  const profile = parsed.profile ?? DEFAULT_PROFILE_NAME;
   const editorUrl = isEditorCommand(parsed.command) ? normalizeEditorUrl(baseUrl, parsed.editorUrl) : null;
   if (!isEditorCommand(parsed.command) && parsed.editorUrl) throw new Error("--editor-url is only valid with editor commands");
   if (parsed.command === "authenticate" && parsed.headlessSpecified) throw new Error("authenticate requires a visible browser; do not pass --headless");
@@ -700,7 +701,7 @@ async function main() {
     const loginUrl = buildBaseUrl(baseUrl, "wp-login.php");
     const authRun = await runWebInspectorScript("open_profile.mjs", openProfileArgs({
       url: loginUrl,
-      profile: parsed.profile,
+      profile,
       timeout: parsed.timeoutSpecified ? parsed.timeout : null,
     }));
     if (authRun.code !== 0) {
@@ -710,7 +711,7 @@ async function main() {
       const summary = createSummary({
         command: "authenticate",
         baseUrl,
-        profile: parsed.profile,
+        profile,
         classification: webInspectorFailureClassification(authRun),
         reportPath: null,
         report: null,
@@ -733,7 +734,7 @@ async function main() {
       command: "check-admin",
       baseUrl,
       editorUrl: null,
-      profile: parsed.profile,
+      profile,
       outputDir: path.join(outputDir, "admin-check"),
       timeout: parsed.timeout,
       headed: false,
@@ -763,7 +764,7 @@ async function main() {
     command: parsed.command,
     baseUrl,
     editorUrl,
-    profile: parsed.profile,
+    profile,
     outputDir,
     timeout: parsed.timeout,
     headed: parsed.headedSpecified,

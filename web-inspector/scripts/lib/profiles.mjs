@@ -4,6 +4,8 @@ import path from "node:path";
 
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+export const DEFAULT_PROFILE_NAME = "default";
+
 export function validateProfileName(name) {
   if (typeof name !== "string" || !PROFILE_NAME_PATTERN.test(name)) {
     throw new Error(

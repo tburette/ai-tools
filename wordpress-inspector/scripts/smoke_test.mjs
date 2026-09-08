@@ -265,6 +265,31 @@ try {
   }), { env });
   assert.equal(seedRun.code, 0, seedRun.stderr || seedRun.stdout);
 
+  const defaultSeedOutput = path.join(outputRoot, "default-seed");
+  const defaultSeedRun = await runWebInspectorScript("capture_page.mjs", captureArgs({
+    url: `${baseUrl}/set-session`,
+    outputDir: defaultSeedOutput,
+    timeout: 5000,
+    waitUntil: "domcontentloaded",
+    waitMs: 0,
+    failOnErrors: true,
+  }), { env });
+  assert.equal(defaultSeedRun.code, 0, defaultSeedRun.stderr || defaultSeedRun.stdout);
+
+  const defaultAdminOutput = path.join(outputRoot, "default-profile-admin");
+  const defaultAdminRun = await runCli([
+    "check-admin",
+    "--base-url", baseUrl,
+    "--output-dir", defaultAdminOutput,
+    "--timeout", "10000",
+  ], env);
+  assert.equal(defaultAdminRun.code, 0, defaultAdminRun.stderr || defaultAdminRun.stdout);
+  const defaultAdminSummary = await readSummary(defaultAdminOutput);
+  const defaultAdminReport = JSON.parse(await readFile(defaultAdminSummary.genericReport, "utf8"));
+  assert.equal(defaultAdminSummary.profile, "default");
+  assert.equal(defaultAdminReport.options.profile, "default");
+  assert.equal(defaultAdminReport.options.persistentContext, true);
+
   // find-post without a profile uses the public REST API and cannot see
   // draft/private content (the fixture returns an empty array for it).
   const findPublicRun = await runCli([

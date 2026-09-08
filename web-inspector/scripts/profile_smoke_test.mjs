@@ -129,18 +129,29 @@ try {
   assert.equal(persistentRun.stdout.includes("profile-smoke=ready"), false);
   assert.equal(JSON.stringify(persistentReport).includes("profile-smoke=ready"), false);
 
-  const ephemeralDir = path.join(outputRoot, "ephemeral");
-  const ephemeralRun = await runCapture(`${baseUrl}/auth`, [
+  const defaultSetDir = path.join(outputRoot, "default-set");
+  const defaultSetRun = await runCapture(`${baseUrl}/set`, [
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
-    "--output-dir", ephemeralDir,
+    "--output-dir", defaultSetDir,
   ], env);
-  assert.equal(ephemeralRun.code, 0, ephemeralRun.stderr || ephemeralRun.stdout);
-  const ephemeralReport = await readReport(ephemeralDir);
-  assert.equal(ephemeralReport.options.profile, null);
-  assert.equal(ephemeralReport.options.persistentContext, false);
-  assert.match(ephemeralReport.viewports[0].domSummary.bodyText, /unauthenticated/);
-  assert.match(ephemeralReport.viewports[0].domSummary.bodyText, /missing/);
+  assert.equal(defaultSetRun.code, 0, defaultSetRun.stderr || defaultSetRun.stdout);
+  const defaultSetReport = await readReport(defaultSetDir);
+  assert.equal(defaultSetReport.options.profile, "default");
+  assert.equal(defaultSetReport.options.persistentContext, true);
+
+  const defaultAuthDir = path.join(outputRoot, "default-auth");
+  const defaultAuthRun = await runCapture(`${baseUrl}/auth`, [
+    "--wait-until", "domcontentloaded",
+    "--wait-ms", "0",
+    "--output-dir", defaultAuthDir,
+  ], env);
+  assert.equal(defaultAuthRun.code, 0, defaultAuthRun.stderr || defaultAuthRun.stdout);
+  const defaultAuthReport = await readReport(defaultAuthDir);
+  assert.equal(defaultAuthReport.options.profile, "default");
+  assert.equal(defaultAuthReport.options.persistentContext, true);
+  assert.match(defaultAuthReport.viewports[0].domSummary.bodyText, /authenticated/);
+  assert.match(defaultAuthReport.viewports[0].domSummary.bodyText, /ready/);
 
   const otherProfileDir = path.join(outputRoot, "other-profile");
   const otherProfileRun = await runCapture(`${baseUrl}/auth`, [

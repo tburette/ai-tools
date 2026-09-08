@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import {
+  DEFAULT_PROFILE_NAME,
   prepareProfileDirectory,
   profileLaunchError,
   resolveStateRoot,
@@ -17,10 +18,10 @@ import {
 
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
-  console.error(`Usage: node scripts/open_profile.mjs <url> --profile <name> [options]
+  console.error(`Usage: node scripts/open_profile.mjs <url> [options]
 
 Options:
-  --profile <name>                Named persistent browser profile (required)
+  --profile <name>                Named persistent browser profile (default: default)
   --timeout <milliseconds>        Close after this time (optional)
   --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
@@ -32,7 +33,7 @@ Options:
 
 function parseArgs(argv) {
   const options = {
-    profile: null,
+    profile: DEFAULT_PROFILE_NAME,
     timeout: null,
     executablePath: null,
     localMap: true,
@@ -60,7 +61,6 @@ function parseArgs(argv) {
     } else throw new Error(`Unknown option --${key}`);
   }
   if (positional.length !== 1) throw new Error("Provide exactly one URL");
-  if (!options.profile) throw new Error("--profile is required");
   if (options.timeout !== null && (!Number.isFinite(options.timeout) || options.timeout < 1)) {
     throw new Error("--timeout must be positive");
   }

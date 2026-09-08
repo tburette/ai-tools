@@ -17,6 +17,13 @@ Core flags:
 `--fail-on-errors`
 `--output-dir <dir>`.
 
+Captures and interactive profile setup use the permanent profile `default` when
+`--profile` is omitted. The profile is stored under the Web Inspector state
+directory (`WEB_INSPECTOR_STATE_DIR`, then `${XDG_STATE_HOME}/web-inspector/profiles`,
+then `~/.local/state/web-inspector/profiles`). Use `--profile <name>` for a
+separate persistent profile. Persistent profiles retain credentials and browser
+state; do not run two commands concurrently with the same profile.
+
 ## Managed Codex sandbox
 
 The Web Inspector launches a real Chromium process. In a managed Codex environment, Chromium can fail before `report.json` is written with an error such as `sandbox_host_linux` or `Operation not permitted`. This is a browser-process permission issue, not a page or application issue.
@@ -124,7 +131,7 @@ node scripts/capture_page.mjs http://localhost:3000/ --fail-on-errors --output-d
 ## Advanced
 
 - **Collector**: `--collector <path>` runs a local ES module exporting `collect({ page, viewport, outputDir, timeout })`; result stored in the report's `collector` field. Use only repository-provided collectors you've reviewed. See `REFERENCE.md`.
-- **Persistent profiles / headed mode**: `--profile <name>`; visible setup via `open_profile.mjs`. See `REFERENCE.md`.
+- **Persistent profiles / headed mode**: `--profile <name>` selects a named profile; omitting it uses the permanent `default` profile. Visible setup is available via `open_profile.mjs`. See `REFERENCE.md`.
 
 ## Workflow
 

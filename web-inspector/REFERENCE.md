@@ -4,7 +4,7 @@ Implementation details, internal behavior, and platform notes. This document is 
 
 ## Persistent profiles and headed sessions
 
-Normal captures are headless and ephemeral. Opt into a dedicated persistent browser profile explicitly:
+Normal captures are headless and use the permanent `default` browser profile. Use an explicit profile name when you need a dedicated persistent profile:
 
 ```bash
 node scripts/capture_page.mjs http://localhost:3000/ \
@@ -12,10 +12,12 @@ node scripts/capture_page.mjs http://localhost:3000/ \
   --output-dir /tmp/web-inspector/profile-check
 ```
 
-The profile name is a validated identifier, not a filesystem path. Persistent
-profiles are explicitly selected with `--profile`; any valid name can be used,
-and a new profile directory is created when needed. Captures are headless by
-default; use `--headed` or `--headless` to choose the mode explicitly.
+The profile name is a validated identifier, not a filesystem path. If
+`--profile` is omitted, the validated name `default` is used. Any valid name
+can be selected explicitly, and a new profile directory is created when
+needed. Captures are headless by default; use `--headed` or `--headless` to
+choose the mode explicitly. Do not run concurrent commands with the same
+profile because Chromium may lock its user-data directory.
 
 ### Profile state resolution order
 
@@ -36,7 +38,6 @@ State is stored in a dedicated owner-only directory; never in the repository, ou
 
 ```bash
 node scripts/open_profile.mjs http://localhost:3000/ \
-  --profile lpu-local \
   --timeout 300000
 ```
 
@@ -111,7 +112,7 @@ node scripts/profile_smoke_test.mjs
 ```
 
 The profile smoke test uses temporary state, output, and localhost fixtures. It
-proves cross-process persistence, separate-profile and ephemeral isolation,
+proves cross-process persistence, default-profile and separate-profile isolation,
 viewport reporting, safe profile-name validation, Firefox selection, and that
 cookie values do not enter reports or stdout.
 
