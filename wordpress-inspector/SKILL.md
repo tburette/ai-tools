@@ -90,12 +90,11 @@ By default, `authenticate` and the subsequent checks use the permanent profile
 `default`. Pass `--profile <name>` to use a separate profile, then reuse that
 name for authentication and subsequent checks.
 
-Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`:
+Then run the interactive setup command. It always opens a dedicated headed Chromium profile at `wp-login.php`; no display-mode flag is required:
 
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
-  --headed \
   --timeout 300000
 ```
 
@@ -104,7 +103,6 @@ By default, `authenticate` stores its reports in a newly created random temporar
 ```bash
 node scripts/wordpress_inspector.mjs authenticate \
   --base-url http://example.test:8888 \
-  --headed \
   --output-dir /tmp/wordpress-inspector/auth
 ```
 
@@ -112,7 +110,7 @@ For `authenticate`, the specified directory is the artifact root. It contains `w
 
 After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Continue only after the browser has closed and this command's probe has completed.
 An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
-The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headed` to allow showing the actual browser. Use `--headless` with `authenticate` and a somewhat short timeout only to receive an explicit error.
+The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. `authenticate` is always headed; `--headed` is accepted but optional, while `--headless` is rejected.
 
 ## Authentication recovery
 

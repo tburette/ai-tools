@@ -46,8 +46,8 @@ Shared options:
   --base-url <url>                WordPress site origin/base URL (required except editor commands with absolute --editor-url)
   --profile <name>                Persistent profile (default: default; find-post without it uses public lookup)
   --output-dir <path>             Artifact directory (default: random temporary directory, e.g. /tmp/wordpress-inspector-XXXXXX)
-  --headed                        Forward headed capture mode
-  --headless                      Force headless capture mode
+  --headed                        Forward headed capture mode (authenticate is headed by default)
+  --headless                      Force headless capture mode (not allowed for authenticate)
   --timeout <milliseconds>        Navigation/action timeout (default: 30000)
   --editor-url <url>              Same-origin Gutenberg editor URL for editor commands
   --help                          Show this help
@@ -703,6 +703,8 @@ async function main() {
   const outputDir = await prepareOutputRoot(parsed.outputDir);
 
   if (parsed.command === "authenticate") {
+    // open_profile.mjs always launches a headed interactive session. The
+    // --headed flag remains accepted for compatibility but is not required.
     const loginUrl = buildBaseUrl(baseUrl, "wp-login.php");
     const authRun = await runWebInspectorScript("open_profile.mjs", openProfileArgs({
       url: loginUrl,

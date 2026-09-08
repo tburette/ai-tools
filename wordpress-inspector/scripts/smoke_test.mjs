@@ -138,7 +138,11 @@ await writeFile(path.join(blockedWebInspectorDir, "scripts", "capture_page.mjs")
 const authWebInspectorDir = path.join(tempRoot, "auth-web-inspector");
 await mkdir(path.join(authWebInspectorDir, "scripts"), { recursive: true });
 await writeFile(path.join(authWebInspectorDir, "scripts", "open_profile.mjs"), `
-if (process.env.FAKE_OPEN_PROFILE_RESULT === "failed") {
+const args = process.argv.slice(2);
+if (args.includes("--headed") || args.includes("--headless")) {
+  console.error("authenticate forwarded an unexpected display-mode flag");
+  process.exitCode = 1;
+} else if (process.env.FAKE_OPEN_PROFILE_RESULT === "failed") {
   console.error("fake interactive profile failure");
   process.exitCode = 1;
 } else {
@@ -261,6 +265,15 @@ try {
   assert.equal(defaultAuthSummaryPath.startsWith(path.join(os.tmpdir(), "wordpress-inspector-")), true);
   await stat(defaultAuthSummaryPath);
   await rm(path.dirname(defaultAuthSummaryPath), { recursive: true, force: true });
+
+  const headlessAuthRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--headless",
+  ], env);
+  assert.equal(headlessAuthRun.code, 1);
+  assert.match(headlessAuthRun.stderr, /authenticate requires a visible browser/);
 
   const blockedOutput = path.join(outputRoot, "browser-launch-blocked");
   const blockedRun = await runCli([
