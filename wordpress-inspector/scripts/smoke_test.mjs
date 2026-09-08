@@ -135,7 +135,97 @@ const blockedWebInspectorDir = path.join(tempRoot, "blocked-web-inspector");
 await mkdir(path.join(blockedWebInspectorDir, "scripts"), { recursive: true });
 await writeFile(path.join(blockedWebInspectorDir, "scripts", "capture_page.mjs"), "process.exitCode = 1;\n", "utf8");
 
+const authWebInspectorDir = path.join(tempRoot, "auth-web-inspector");
+await mkdir(path.join(authWebInspectorDir, "scripts"), { recursive: true });
+await writeFile(path.join(authWebInspectorDir, "scripts", "open_profile.mjs"), `
+if (process.env.FAKE_OPEN_PROFILE_RESULT === "failed") {
+  console.error("fake interactive profile failure");
+  process.exitCode = 1;
+} else {
+  console.log("Interactive session ended: closed.");
+}
+`, "utf8");
+await writeFile(path.join(authWebInspectorDir, "scripts", "capture_page.mjs"), `
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+const outputDirIndex = args.indexOf("--output-dir");
+const outputDir = path.resolve(args[outputDirIndex + 1]);
+const url = args[0];
+const actionCount = args.filter((arg) => arg === "--action").length;
+await fs.mkdir(outputDir, { recursive: true });
+const screenshot = path.join(outputDir, "screenshot.png");
+await fs.writeFile(screenshot, "fake screenshot", "utf8");
+const report = {
+  options: { profile: null },
+  viewports: [{
+    finalUrl: url,
+    actionResults: Array.from({ length: actionCount }, () => ({ error: null })),
+    console: [],
+    pageErrors: [],
+    failedRequests: [],
+    failedResponses: [],
+    screenshot,
+  }],
+};
+const reportPath = path.join(outputDir, "report.json");
+await fs.writeFile(reportPath, JSON.stringify(report), "utf8");
+console.log(JSON.stringify({ ...report, report: reportPath }));
+`, "utf8");
+
 try {
+  const helpRun = await runCli(["authenticate", "--help"]);
+  assert.equal(helpRun.code, 0, helpRun.stderr || helpRun.stdout);
+  assert.match(helpRun.stderr, /random temporary directory, e\.g\. \/tmp\/wordpress-inspector-XXXXXX/);
+
+  const authOutput = path.join(outputRoot, "authenticate");
+  const authRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--output-dir", authOutput,
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: authWebInspectorDir });
+  assert.equal(authRun.code, 0, authRun.stderr || authRun.stdout);
+  const authSummary = await readSummary(authOutput);
+  const authOutputJson = JSON.parse(authRun.stdout);
+  assert.equal(authSummary.classification, "AUTHENTICATED");
+  assert.equal(authOutputJson.summary, path.join(authOutput, "wordpress-summary.json"));
+  assert.equal(authSummary.genericReport, path.join(authOutput, "admin-check", "web-inspector", "report.json"));
+  await stat(path.join(authOutput, "wordpress-summary.json"));
+  await stat(path.join(authOutput, "admin-check", "auth-probe", "report.json"));
+  await stat(authSummary.genericReport);
+  await stat(authSummary.screenshots[0]);
+
+  const failedAuthOutput = path.join(outputRoot, "authenticate-failed");
+  const failedAuthRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--output-dir", failedAuthOutput,
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: authWebInspectorDir, FAKE_OPEN_PROFILE_RESULT: "failed" });
+  assert.equal(failedAuthRun.code, 1, failedAuthRun.stderr || failedAuthRun.stdout);
+  const failedAuthSummary = await readSummary(failedAuthOutput);
+  const failedAuthOutputJson = JSON.parse(failedAuthRun.stdout);
+  assert.equal(failedAuthSummary.classification, "TECHNICAL_ERRORS");
+  assert.equal(failedAuthOutputJson.summary, path.join(failedAuthOutput, "wordpress-summary.json"));
+  await stat(path.join(failedAuthOutput, "wordpress-summary.json"));
+
+  const defaultAuthRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: authWebInspectorDir });
+  assert.equal(defaultAuthRun.code, 0, defaultAuthRun.stderr || defaultAuthRun.stdout);
+  const defaultAuthOutputJson = JSON.parse(defaultAuthRun.stdout);
+  const defaultAuthSummaryPath = defaultAuthOutputJson.summary;
+  assert.equal(defaultAuthSummaryPath.startsWith(path.join(os.tmpdir(), "wordpress-inspector-")), true);
+  await stat(defaultAuthSummaryPath);
+  await rm(path.dirname(defaultAuthSummaryPath), { recursive: true, force: true });
+
   const blockedOutput = path.join(outputRoot, "browser-launch-blocked");
   const blockedRun = await runCli([
     "check-admin",

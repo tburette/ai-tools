@@ -97,6 +97,18 @@ node scripts/wordpress_inspector.mjs authenticate \
   --timeout 300000
 ```
 
+By default, `authenticate` stores its reports in a newly created random temporary directory under the system temporary directory (for example, `/tmp/wordpress-inspector-Ab12cd`). The final JSON output includes the absolute summary path in its `summary` field. For a predictable location, pass `--output-dir` explicitly:
+
+```bash
+node scripts/wordpress_inspector.mjs authenticate \
+  --base-url http://example.test:8888 \
+  --profile wp-local \
+  --headed \
+  --output-dir /tmp/wordpress-inspector/auth
+```
+
+For `authenticate`, the specified directory is the artifact root. It contains `wordpress-summary.json`; the read-only follow-up probe is under `admin-check/auth-probe/` and `admin-check/web-inspector/`. An explicit directory may reuse or overwrite artifacts from an earlier run, so choose a location whose contents can be replaced.
+
 After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Continue only after the browser has closed and this command's probe has completed.
 An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
 The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Use `--headed` to allow showing the actual browser. Use `--headless` with `authenticate` and a somewhat short timeout only to receive an explicit error.

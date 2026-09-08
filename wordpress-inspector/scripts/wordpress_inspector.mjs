@@ -43,7 +43,7 @@ function usage(message) {
 Shared options:
   --base-url <url>                WordPress site origin/base URL (required)
   --profile <name>                Web Inspector persistent profile (required except find-post, where it enables authenticated lookup)
-  --output-dir <path>             Artifact directory (default: /tmp/wordpress-inspector/<timestamp>)
+  --output-dir <path>             Artifact directory (default: random temporary directory, e.g. /tmp/wordpress-inspector-XXXXXX)
   --headed                        Forward headed capture mode
   --headless                      Force headless capture mode
   --timeout <milliseconds>        Navigation/action timeout (default: 30000)
