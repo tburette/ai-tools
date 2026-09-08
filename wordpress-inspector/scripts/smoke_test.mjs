@@ -379,7 +379,7 @@ try {
   ], env);
   assert.equal(editorRun.code, 0, editorRun.stderr || editorRun.stdout);
   const editorSummary = await readSummary(editorOutput);
-  assert.equal(editorSummary.classification, "AUTHENTICATED");
+  assert.equal(editorSummary.classification, "EDITOR_HEALTHY");
   assert.equal(editorSummary.checks.every(({ passed }) => passed), true);
 
   const onboardingOutput = path.join(outputRoot, "onboarding-editor");
@@ -393,7 +393,7 @@ try {
   ], env);
   assert.equal(onboardingRun.code, 0, onboardingRun.stderr || onboardingRun.stdout);
   const onboardingSummary = await readSummary(onboardingOutput);
-  assert.equal(onboardingSummary.classification, "AUTHENTICATED");
+  assert.equal(onboardingSummary.classification, "EDITOR_HEALTHY");
   assert.equal(onboardingSummary.checks.every(({ passed }) => passed), true);
 
   const loginEditorOutput = path.join(outputRoot, "login-editor");

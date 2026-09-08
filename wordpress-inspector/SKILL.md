@@ -16,7 +16,7 @@ Use one stable, explicit profile name for the whole workflow, it is needed to ke
 2. Use check-admin to see if you have admin access.
 3. If the result is `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps, then rerun the original command with the same profile.
 4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url`, `--editor-url`, and `--profile`.
-5. Treat `AUTHENTICATED` or `EDITOR_SNAPSHOT_CAPTURED` as the successful authentication/snapshot result. Report any other classification and its diagnostics without attempting mutation.
+5. Treat `AUTHENTICATED` as the successful authentication/admin result, `EDITOR_HEALTHY` as the successful `check-editor` result, and `EDITOR_SNAPSHOT_CAPTURED` as the successful `snapshot-editor` result. Report any other classification and its diagnostics without attempting mutation.
 
 ## Retrieve post ID from frontend URL
 
@@ -153,6 +153,8 @@ node scripts/wordpress_inspector.mjs check-editor \
 
 The editor must be in **visual mode**. If the post/page editor is in **text mode** (showing source code), `check-editor` reports `EDITOR_LOAD_FAILED`.
 
+When all editor health checks pass, `check-editor` reports `EDITOR_HEALTHY`. This includes authentication, editor shell/canvas, invalid-block, recovery, missing-block, fatal-error, and browser-diagnostic checks; it is not only a login check.
+
 `check-editor` performs full Gutenberg editor health checks:
 
 - Login form/username absent (authentication verification)
@@ -215,9 +217,10 @@ The check summary (`wordpress-summary.json`) and editor snapshot summary (`snaps
 
 Classification values:
 
-- `AUTHENTICATED` — the expected shell/editor checks passed;
+- `AUTHENTICATED` — the expected authentication/admin-shell checks passed (`authenticate` and `check-admin`);
 - `AUTH_REQUIRED` — WordPress returned a login route/form or equivalent expiry signal;
 - `ADMIN_LOAD_FAILED` — authentication was not the primary signal, but the admin shell failed;
+- `EDITOR_HEALTHY` — the expected Gutenberg editor health checks passed (`check-editor`);
 - `EDITOR_LOAD_FAILED` — the editor shell/canvas or fatal-error checks failed;
 - `EDITOR_INVALID_BLOCKS` — the editor rendered but an invalid/missing/recovery indicator was present;
 - `EDITOR_SNAPSHOT_CAPTURED` — `snapshot-editor` captured the iframe screenshot, block tree, and source successfully;

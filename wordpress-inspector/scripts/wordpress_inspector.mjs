@@ -276,7 +276,7 @@ function classifyEditor(run) {
     actionCheck("editor fatal-error indicator absent", !fatal),
     actionCheck("browser diagnostics clear", technical.length === 0, technical.join(", ") || null),
   ];
-  let classification = "AUTHENTICATED";
+  let classification = "EDITOR_HEALTHY";
   if (auth) classification = "AUTH_REQUIRED";
   else if (technical.length) classification = "TECHNICAL_ERRORS";
   else if (shellFailed || canvasFailed || fatal) classification = "EDITOR_LOAD_FAILED";
@@ -320,7 +320,7 @@ function classifySnapshot(run) {
       warnings: [...new Set([...(editorResult.warnings ?? []), snapshotFailure.code])],
     };
   }
-  if (editorResult.classification === "AUTHENTICATED") {
+  if (editorResult.classification === "EDITOR_HEALTHY") {
     return { ...editorResult, classification: "EDITOR_SNAPSHOT_CAPTURED", checks };
   }
   return { ...editorResult, checks };
@@ -770,7 +770,12 @@ async function main() {
     headless: parsed.headlessSpecified,
   });
   await writeSummary(result);
-  if (!["AUTHENTICATED", "EDITOR_SNAPSHOT_CAPTURED"].includes(result.classification)) process.exitCode = 1;
+  const successfulClassifications = {
+    "check-admin": "AUTHENTICATED",
+    "check-editor": "EDITOR_HEALTHY",
+    "snapshot-editor": "EDITOR_SNAPSHOT_CAPTURED",
+  };
+  if (result.classification !== successfulClassifications[parsed.command]) process.exitCode = 1;
 }
 
 main().catch((error) => {
