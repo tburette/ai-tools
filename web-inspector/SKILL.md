@@ -133,6 +133,12 @@ node scripts/capture_page.mjs http://localhost:3000/ --fail-on-errors --output-d
 - **Collector**: `--collector <path>` runs a local ES module exporting `collect({ page, viewport, outputDir, timeout })`; result stored in the report's `collector` field. Use only repository-provided collectors you've reviewed. See `REFERENCE.md`.
 - **Persistent profiles / headed mode**: `--profile <name>` selects a named profile; omitting it uses the permanent `default` profile. Visible setup is available via `open_profile.mjs`. See `REFERENCE.md`.
 
+`open_profile.mjs` detects the visible page, browser context, and browser
+connection closing, so it returns as soon as the interactive window is gone.
+It prints a machine-readable `interactive-session-ended` record with one of
+`window-closed`, `timeout`, `SIGINT`, or `SIGTERM`. A normal `window-closed`
+session exits successfully; timeout and signal termination exit non-zero.
+
 ## Workflow
 
 1. Verify any local server is already running (don't start/stop a dev env unless asked).

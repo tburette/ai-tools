@@ -213,6 +213,24 @@ function webInspectorFailureClassification(run) {
   return browserLaunchBlocked(run) ? "BROWSER_LAUNCH_BLOCKED" : "TECHNICAL_ERRORS";
 }
 
+function interactiveSessionFailureWarning(run) {
+  if (run?.timedOut || run?.sessionEndReason === "timeout") {
+    return "Interactive profile session reached its timeout before the browser was closed.";
+  }
+  if (run?.sessionEndReason === "SIGINT") return "Interactive profile session was interrupted by SIGINT.";
+  if (run?.sessionEndReason === "SIGTERM") return "Interactive profile session was interrupted by SIGTERM.";
+  if (run?.sessionEndReason) return `Interactive profile session ended (${run.sessionEndReason}) before the browser was closed.`;
+  return "Interactive profile session failed before the browser-close signal was received.";
+}
+
+function interactiveSessionWarnings(run) {
+  const warnings = [interactiveSessionFailureWarning(run)];
+  if (!["timeout", "SIGINT", "SIGTERM"].includes(run?.sessionEndReason)) {
+    warnings.push(webInspectorFailureWarning(run));
+  }
+  return [...new Set(warnings)];
+}
+
 function addFailureWarning(result, run) {
   if (run.report) return result;
   const blocked = browserLaunchBlocked(run);
@@ -809,27 +827,27 @@ async function main() {
       profile,
       timeout: parsed.timeoutSpecified ? parsed.timeout : null,
     }));
-    if (authRun.code !== 0) {
-      const timeoutWarning = authRun.timedOut || authRun.sessionEndedByTimeout
-        ? "Interactive profile session reached its timeout."
-        : "Interactive profile session failed before the read-only admin probe.";
-      const summary = createSummary({
-        command: "authenticate",
-        baseUrl,
-        profile,
-        classification: webInspectorFailureClassification(authRun),
-        reportPath: null,
-        report: null,
-        checks: unavailableChecks([
-          "interactive profile session",
-          "read-only wp-admin probe",
-        ]),
-        warnings: [...new Set([timeoutWarning, webInspectorFailureWarning(authRun)])],
-        limitations: [
-          "The read-only wp-admin probe was skipped because the interactive profile session did not complete successfully.",
-          "No credentials were supplied, so authentication was left to the dedicated headed browser.",
-        ],
-      });
+    if (authRun.code !== 0 || authRun.sessionEndReason !== "window-closed") {
+      const summary = {
+        ...createSummary({
+          command: "authenticate",
+          baseUrl,
+          profile,
+          classification: webInspectorFailureClassification(authRun),
+          reportPath: null,
+          report: null,
+          checks: unavailableChecks([
+            "interactive profile session",
+            "read-only wp-admin probe",
+          ]),
+          warnings: interactiveSessionWarnings(authRun),
+          limitations: [
+            "The read-only wp-admin probe was skipped because the interactive profile session did not complete successfully.",
+            "No credentials were supplied, so authentication was left to the dedicated headed browser.",
+          ],
+        }),
+        sessionEndReason: authRun.sessionEndReason,
+      };
       const result = { summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
       await writeSummary(result);
       process.exitCode = 1;
@@ -848,11 +866,9 @@ async function main() {
     const summary = {
       ...adminResult.summary,
       command: "authenticate",
+      sessionEndReason: authRun.sessionEndReason,
       warnings: [
         ...adminResult.summary.warnings,
-        ...(authRun.timedOut || authRun.sessionEndedByTimeout
-          ? ["Interactive profile session reached its timeout."]
-          : []),
       ],
       limitations: [
         "No credentials were supplied, so authentication was left to the dedicated headed browser.",
@@ -861,7 +877,7 @@ async function main() {
     };
     const result = { ...adminResult, summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
     await writeSummary(result);
-    if (authRun.code !== 0 || result.classification !== "AUTHENTICATED") process.exitCode = 1;
+    if (authRun.sessionEndReason !== "window-closed" || result.classification !== "AUTHENTICATED") process.exitCode = 1;
     return;
   }
 

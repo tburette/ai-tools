@@ -22,7 +22,7 @@ function usage(message) {
 
 Options:
   --profile <name>                Named persistent browser profile (default: default)
-  --timeout <milliseconds>        Close after this time (optional)
+  --timeout <milliseconds>        Close after this time; exits non-zero if reached (optional)
   --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
   --no-local-map                  Do not map localhost/*.test to 127.0.0.1
@@ -67,32 +67,81 @@ function parseArgs(argv) {
   return { url: positional[0], ...options };
 }
 
-function waitForClose(context, timeout) {
+const BROWSER_CONNECTION_POLL_MS = 100;
+
+function writeStdoutLine(value) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(`${value}\n`, (error) => error ? reject(error) : resolve());
+  });
+}
+
+function waitForClose(context, page, timeout, lifecycle) {
+  const browser = typeof context.browser === "function" ? context.browser() : null;
   return new Promise((resolve, reject) => {
     let timer = null;
+    let browserPoller = null;
     let settled = false;
     let requestedReason = null;
-    const finish = (error = null) => {
+    let contextClosePromise = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (browserPoller) clearInterval(browserPoller);
+      context.removeListener("close", onContextClose);
+      page.removeListener("close", onPageClose);
+      browser?.removeListener("disconnected", onBrowserDisconnected);
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+    };
+    const finish = (reason = null) => {
+      if (settled) return;
+      if (reason && !requestedReason) requestedReason = reason;
+      settled = true;
+      cleanup();
+      resolve(requestedReason || "window-closed");
+    };
+    const fail = (error) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
-      process.removeListener("SIGINT", onSignal);
-      process.removeListener("SIGTERM", onSignal);
-      if (error) reject(error);
-      else resolve(requestedReason || "closed");
+      cleanup();
+      reject(error);
     };
-    const onSignal = () => {
-      requestedReason = "signal";
-      context.close().then(() => finish()).catch(finish);
+    const requestContextClose = (reason) => {
+      if (!requestedReason) requestedReason = reason;
+      lifecycle.contextCloseRequested = true;
+      if (!contextClosePromise) {
+        contextClosePromise = Promise.resolve().then(() => context.close());
+        contextClosePromise.then(() => finish()).catch(fail);
+      }
+      return contextClosePromise;
     };
-    context.once("close", () => finish());
-    process.once("SIGINT", onSignal);
-    process.once("SIGTERM", onSignal);
+    const onContextClose = () => {
+      lifecycle.contextClosed = true;
+      finish("window-closed");
+    };
+    const onPageClose = () => finish("window-closed");
+    const onBrowserDisconnected = () => {
+      lifecycle.browserDisconnected = true;
+      finish("window-closed");
+    };
+    const onSigint = () => requestContextClose("SIGINT");
+    const onSigterm = () => requestContextClose("SIGTERM");
+    const onTimeout = () => requestContextClose("timeout");
+    context.once("close", onContextClose);
+    page.once("close", onPageClose);
+    browser?.once("disconnected", onBrowserDisconnected);
+    process.once("SIGINT", onSigint);
+    process.once("SIGTERM", onSigterm);
     if (timeout !== null) {
-      timer = setTimeout(() => {
-        requestedReason = "timeout";
-        context.close().then(() => finish()).catch(finish);
-      }, timeout);
+      timer = setTimeout(onTimeout, timeout);
+    }
+    if (browser && typeof browser.isConnected === "function") {
+      browserPoller = setInterval(() => {
+        try {
+          if (!browser.isConnected()) onBrowserDisconnected();
+        } catch (error) {
+          fail(error);
+        }
+      }, BROWSER_CONNECTION_POLL_MS);
     }
   });
 }
@@ -129,6 +178,11 @@ async function main() {
     throw profileLaunchError(options.profile, error);
   }
 
+  const lifecycle = {
+    contextCloseRequested: false,
+    contextClosed: false,
+    browserDisconnected: false,
+  };
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(options.timeout);
@@ -136,10 +190,12 @@ async function main() {
     console.log(`Opened ${cliOptions.url} in dedicated Web Inspector profile "${options.profile}".`);
     console.log("Complete any authorized interactive setup, then close the browser window to finish.");
     if (cliOptions.timeout !== null) console.log(`The session will close automatically after ${cliOptions.timeout} ms.`);
-    const closeReason = await waitForClose(context, cliOptions.timeout);
-    console.log(`Interactive session ended: ${closeReason}.`);
+    const closeReason = await waitForClose(context, page, cliOptions.timeout, lifecycle);
+    await writeStdoutLine(`Interactive session ended: ${closeReason}.`);
+    await writeStdoutLine(JSON.stringify({ event: "interactive-session-ended", sessionEndReason: closeReason }));
+    if (closeReason !== "window-closed") process.exitCode = 1;
   } finally {
-    if (!context.isClosed()) await context.close();
+    if (!context.isClosed() && !lifecycle.contextCloseRequested && !lifecycle.contextClosed && !lifecycle.browserDisconnected) await context.close();
   }
 }
 

@@ -25,6 +25,26 @@ async function ensureScriptExists(webInspectorDir, scriptName) {
   return scriptPath;
 }
 
+function parseSessionEndReason(stdout) {
+  const lines = String(stdout ?? "").split(/\r?\n/).reverse();
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line);
+      if (record?.event === "interactive-session-ended" && typeof record.sessionEndReason === "string") {
+        return record.sessionEndReason;
+      }
+    } catch {
+      // Ignore normal human-readable runner output and inspect the next line.
+    }
+  }
+  const legacyReason = /Interactive session ended:\s*(closed|window-closed|timeout|SIGINT|SIGTERM|signal)\./i.exec(String(stdout ?? ""))?.[1]?.toLowerCase();
+  if (legacyReason === "closed" || legacyReason === "window-closed") return "window-closed";
+  if (legacyReason === "sigint") return "SIGINT";
+  if (legacyReason === "sigterm") return "SIGTERM";
+  return legacyReason;
+}
+
 export async function runWebInspectorScript(scriptName, args, { env = process.env, timeout = null } = {}) {
   // The WordPress adapter delegates browser work to the sibling Web Inspector
   // as a child process, then loads its JSON report instead of parsing terminal
@@ -63,11 +83,13 @@ export async function runWebInspectorScript(scriptName, args, { env = process.en
           // Configuration or launch failures may happen before a report exists.
         }
       }
+      const sessionEndReason = parseSessionEndReason(stdout);
       resolve({
         code,
         signal,
         timedOut,
-        sessionEndedByTimeout: /Interactive session ended: timeout\b/i.test(stdout),
+        sessionEndReason,
+        sessionEndedByTimeout: sessionEndReason === "timeout",
         stdout,
         stderr,
         report,

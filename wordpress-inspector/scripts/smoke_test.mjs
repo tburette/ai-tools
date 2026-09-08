@@ -170,7 +170,10 @@ if (args.includes("--headed") || args.includes("--headless")) {
   console.error("fake interactive profile failure");
   process.exitCode = 1;
 } else {
-  console.log("Interactive session ended: closed.");
+  const sessionEndReason = process.env.FAKE_OPEN_PROFILE_RESULT === "timeout" ? "timeout" : "window-closed";
+  console.log("Interactive session ended: " + sessionEndReason + ".");
+  console.log(JSON.stringify({ event: "interactive-session-ended", sessionEndReason }));
+  if (sessionEndReason !== "window-closed") process.exitCode = 1;
 }
 `, "utf8");
 await writeFile(path.join(authWebInspectorDir, "scripts", "capture_page.mjs"), `
@@ -255,6 +258,7 @@ try {
   const authSummary = await readSummary(authOutput);
   const authOutputJson = JSON.parse(authRun.stdout);
   assert.equal(authSummary.classification, "AUTHENTICATED");
+  assert.equal(authSummary.sessionEndReason, "window-closed");
   assert.equal(authOutputJson.summary, path.join(authOutput, "wordpress-summary.json"));
   assert.equal(authSummary.genericReport, path.join(authOutput, "admin-check", "web-inspector", "report.json"));
   await stat(path.join(authOutput, "wordpress-summary.json"));
@@ -276,6 +280,21 @@ try {
   assert.equal(failedAuthSummary.classification, "TECHNICAL_ERRORS");
   assert.equal(failedAuthOutputJson.summary, path.join(failedAuthOutput, "wordpress-summary.json"));
   await stat(path.join(failedAuthOutput, "wordpress-summary.json"));
+
+  const timedOutAuthOutput = path.join(outputRoot, "authenticate-timeout");
+  const timedOutAuthRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--output-dir", timedOutAuthOutput,
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: authWebInspectorDir, FAKE_OPEN_PROFILE_RESULT: "timeout" });
+  assert.equal(timedOutAuthRun.code, 1, timedOutAuthRun.stderr || timedOutAuthRun.stdout);
+  const timedOutAuthSummary = await readSummary(timedOutAuthOutput);
+  assert.equal(timedOutAuthSummary.classification, "TECHNICAL_ERRORS");
+  assert.equal(timedOutAuthSummary.sessionEndReason, "timeout");
+  assert.match(timedOutAuthSummary.warnings.join(" "), /reached its timeout/);
+  await assert.rejects(() => stat(path.join(timedOutAuthOutput, "admin-check")), { code: "ENOENT" });
 
   const defaultAuthRun = await runCli([
     "authenticate",

@@ -108,9 +108,9 @@ node scripts/wordpress_inspector.mjs authenticate \
 
 For `authenticate`, the specified directory is the artifact root. It contains `wordpress-summary.json`; the automated login attempt, when used, is under `login-attempt/`, and the read-only follow-up probe is under `admin-check/auth-probe/` and `admin-check/web-inspector/`. An explicit directory may reuse or overwrite artifacts from an earlier run, so choose a location whose contents can be replaced.
 
-After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. Continue only after the browser has closed and this command's probe has completed.
+After launching the command, tell the user that the dedicated login window is open. Ask them to sign in, select **Remember Me** when offered, close the browser window when finished, and then report that login is complete. The runner detects page/context/browser closure and returns immediately; continue only after this command's probe has completed.
 An explicitly supplied `--timeout` also bounds this interactive session; if omitted, the session waits for the operator to close it.
-The command follows the session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Manual `authenticate` is headed by default; `--headed` is accepted but optional, while `--headless` is rejected when no credentials are supplied.
+The command follows a normally closed session with a wp-admin probe and reports `AUTHENTICATED` or `AUTH_REQUIRED`. Manual `authenticate` is headed by default; `--headed` is accepted but optional, while `--headless` is rejected when no credentials are supplied. The interactive runner records `sessionEndReason: window-closed` for a normal close; timeout or SIGINT/SIGTERM ends with a non-success result and skips the admin probe.
 
 If the authorized login and password are already known, pass both `--username` and `--password` to automate the login. This mode uses the persistent profile headlessly, so it does not open a browser window:
 

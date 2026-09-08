@@ -41,7 +41,13 @@ node scripts/open_profile.mjs http://localhost:3000/ \
   --timeout 300000
 ```
 
-Launches a visible dedicated Chromium window, waits for the operator to close it (or for the timeout). Requires a usable `DISPLAY` or `WAYLAND_DISPLAY` on Linux. Does not detect login success or handle credentials.
+Launches a visible dedicated Chromium window and returns as soon as the page,
+browser context, or browser connection closes. A timeout or SIGINT/SIGTERM also
+ends the session, but exits non-zero and is reported separately from a normal
+`window-closed` result. The runner emits a final `interactive-session-ended`
+JSON record with the session-end reason. Requires a usable `DISPLAY` or
+`WAYLAND_DISPLAY` on Linux. It does not detect login success or handle
+credentials.
 
 ## First-run runtime setup
 
@@ -109,6 +115,12 @@ Persistence checks:
 
 ```bash
 node scripts/profile_smoke_test.mjs
+```
+
+Interactive-profile lifecycle checks:
+
+```bash
+node scripts/open_profile_smoke_test.mjs
 ```
 
 The profile smoke test uses temporary state, output, and localhost fixtures. It
