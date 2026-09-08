@@ -46,6 +46,45 @@ export function buildBaseUrl(baseUrl, relativePath) {
   return new URL(path, base).toString();
 }
 
+export function inferBaseUrlFromEditorUrl(rawValue) {
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    throw new Error("--editor-url is required for an editor command");
+  }
+  let editorUrl;
+  try {
+    editorUrl = new URL(rawValue);
+  } catch {
+    throw new Error("--base-url is required when --editor-url is relative; provide an absolute editor URL");
+  }
+  if (!["http:", "https:"].includes(editorUrl.protocol)) {
+    throw new Error("--editor-url must use the same origin as --base-url");
+  }
+  if (editorUrl.username || editorUrl.password) throw new Error("--editor-url must not contain credentials");
+
+  const postEditorSuffix = "/wp-admin/post.php";
+  const siteEditorSuffix = "/wp-admin/site-editor.php";
+  let basePath = null;
+  if (editorUrl.pathname.endsWith(postEditorSuffix)) {
+    const actionValues = editorUrl.searchParams.getAll("action");
+    const postValues = editorUrl.searchParams.getAll("post");
+    const validPostEditor = actionValues.length === 1
+      && actionValues[0] === "edit"
+      && postValues.length === 1
+      && /^\d+$/.test(postValues[0])
+      && Number(postValues[0]) > 0;
+    if (validPostEditor) basePath = editorUrl.pathname.slice(0, -postEditorSuffix.length);
+  } else if (editorUrl.pathname.endsWith(siteEditorSuffix) && !editorUrl.searchParams.has("action")) {
+    basePath = editorUrl.pathname.slice(0, -siteEditorSuffix.length);
+  }
+  if (basePath === null) {
+    throw new Error("--editor-url must target a supported read-only Gutenberg editor route (post.php?action=edit or site-editor.php)");
+  }
+
+  const baseUrl = new URL(editorUrl.origin);
+  baseUrl.pathname = basePath || "/";
+  return normalizeBaseUrl(baseUrl.toString());
+}
+
 export function normalizeEditorUrl(baseUrl, rawValue) {
   // Only allow known Gutenberg editor routes. The adapter is read-only, so a
   // same-origin URL alone is not sufficient protection against mutation routes.

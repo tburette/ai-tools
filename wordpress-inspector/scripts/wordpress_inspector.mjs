@@ -14,6 +14,7 @@ import {
   createSummary,
   finalUrl,
   isEditorCommand,
+  inferBaseUrlFromEditorUrl,
   isLoginUrl,
   normalizeBaseUrl,
   normalizeEditorUrl,
@@ -42,7 +43,7 @@ function usage(message) {
   node scripts/wordpress_inspector.mjs find-post --slug <slug> [--post-type page|post] [--profile <name>] [options]
 
 Shared options:
-  --base-url <url>                WordPress site origin/base URL (required)
+  --base-url <url>                WordPress site origin/base URL (required except editor commands with absolute --editor-url)
   --profile <name>                Persistent profile (default: default; find-post without it uses public lookup)
   --output-dir <path>             Artifact directory (default: random temporary directory, e.g. /tmp/wordpress-inspector-XXXXXX)
   --headed                        Forward headed capture mode
@@ -676,7 +677,11 @@ async function main() {
   // `authenticate` opens the visible profile first; editor/admin commands go
   // through runCheck() and then emit a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
-  const baseUrl = normalizeBaseUrl(parsed.baseUrl);
+  const baseUrl = parsed.baseUrl !== null
+    ? normalizeBaseUrl(parsed.baseUrl)
+    : isEditorCommand(parsed.command)
+      ? inferBaseUrlFromEditorUrl(parsed.editorUrl)
+      : normalizeBaseUrl(parsed.baseUrl);
 
   if (parsed.command === "find-post") {
     const result = await findPost({

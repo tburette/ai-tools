@@ -10,14 +10,14 @@ This tool is designed to be read-only.
 
 Browser commands use the permanent Web Inspector profile `default` when `--profile` is omitted. Use `--profile <name>` when you need a separate profile, and keep that name unchanged across authentication and subsequent checks. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
 
-`find-post` is the exception: without `--profile` it uses the public REST API and does not open a browser; pass an explicit profile for an authenticated lookup of non-public content.
+`find-post` is the exception: without `--profile` it uses the public REST API and does not open a browser; pass an explicit profile for an authenticated lookup of non-public content. Its `--base-url` remains required.
 
 ## Standard editor workflow
 
 1. Use the default profile, or choose one explicit profile name and keep it unchanged for every command in this workflow.
 2. Use check-admin to see if you have admin access.
 3. If the result is `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps, then rerun the original command with the same profile.
-4. Run `check-editor` or `snapshot-editor` with the explicit `--base-url` and `--editor-url`; omit `--profile` for the default profile or pass one explicit profile name.
+4. Run `check-editor` or `snapshot-editor` with `--editor-url`; `--base-url` may be omitted when that is an absolute URL, because the adapter infers the origin and WordPress path prefix. Use an explicit `--base-url` for a relative editor URL.
 5. Treat `AUTHENTICATED` as the successful authentication/admin result, `EDITOR_HEALTHY` as the successful `check-editor` result, and `EDITOR_SNAPSHOT_CAPTURED` as the successful `snapshot-editor` result. Report any other classification and its diagnostics without attempting mutation.
 
 ## Retrieve post ID from frontend URL
@@ -143,12 +143,13 @@ Check the status of some Gutenberg content:
 
 ```bash
 node scripts/wordpress_inspector.mjs check-editor \
-  --base-url http://example.test:8888 \
   --editor-url 'http://example.test:8888/wp-admin/post.php?post=123&action=edit' \
   --output-dir /tmp/wordpress-inspector/editor
 ```
 
 `check-editor` only accepts the Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary endpoints. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those yourself (`find-post` may help). The site editor routes (`site-editor.php`) cover templates, template parts (direct `?p=/wp_template_part/...` URLs), navigation, and styles; `check-editor` inspects any of them once direct, editable content is targeted.
+
+When `--base-url` is omitted, `--editor-url` must be an absolute `http` or `https` URL targeting one of those supported routes. The adapter infers the base origin and any path prefix before `/wp-admin/`, and records the inferred value in the summary. Relative editor URLs still work when `--base-url` is supplied.
 
 The editor must be in **visual mode**. If the post/page editor is in **text mode** (showing source code), `check-editor` reports `EDITOR_LOAD_FAILED`.
 
@@ -181,6 +182,8 @@ node scripts/wordpress_inspector.mjs snapshot-editor \
 ```
 
 `snapshot-editor` only works with iframe-based Gutenberg and with the editor in visual mode (not in text mode). If it cannot find an accessible editor iframe, it exits non-zero with `EDITOR_IFRAME_NOT_FOUND`.
+
+`snapshot-editor` uses the same `--base-url` inference as `check-editor`: an absolute `--editor-url` is sufficient, while a relative editor URL requires `--base-url`.
 
 On success, the output directory contains:
 

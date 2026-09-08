@@ -8,7 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { captureArgs, runWebInspectorScript } from "./lib/web_inspector_process.mjs";
-import { authRequired, technicalIssues } from "./lib/wordpress.mjs";
+import { authRequired, inferBaseUrlFromEditorUrl, technicalIssues } from "./lib/wordpress.mjs";
 import { formatBlocksTree } from "./lib/editor_artifacts.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -175,6 +175,42 @@ console.log(JSON.stringify({ ...report, report: reportPath }));
 `, "utf8");
 
 try {
+  const postEditorUrl = `${baseUrl}/wp-admin/post.php?post=1&action=edit`;
+  const siteEditorUrl = `${baseUrl}/wp-admin/site-editor.php?p=%2Fwp_template%2Fhome`;
+  assert.equal(inferBaseUrlFromEditorUrl(postEditorUrl), baseUrl);
+  assert.equal(inferBaseUrlFromEditorUrl(siteEditorUrl), baseUrl);
+  assert.equal(
+    inferBaseUrlFromEditorUrl(`http://example.test/blog/site/wp-admin/post.php?post=1&action=edit`),
+    "http://example.test/blog/site",
+  );
+  assert.throws(
+    () => inferBaseUrlFromEditorUrl("/wp-admin/post.php?post=1&action=edit"),
+    /--base-url is required when --editor-url is relative/,
+  );
+  assert.throws(
+    () => inferBaseUrlFromEditorUrl(`${baseUrl}/wp-admin/admin-post.php?action=delete`),
+    /supported read-only Gutenberg editor route/,
+  );
+  for (const [command, commandArgs] of [
+    ["authenticate", ["--profile", "fake"]],
+    ["check-admin", ["--profile", "fake"]],
+    ["find-post", ["--slug", "public-page"]],
+  ]) {
+    const missingBaseRun = await runCli([command, ...commandArgs], env);
+    assert.equal(missingBaseRun.code, 1);
+    assert.match(missingBaseRun.stderr, /--base-url is required/);
+  }
+  const relativeNoBaseOutput = path.join(outputRoot, "relative-editor-without-base");
+  const relativeNoBaseRun = await runCli([
+    "check-editor",
+    "--profile", "fake",
+    "--editor-url", "/wp-admin/post.php?post=1&action=edit",
+    "--output-dir", relativeNoBaseOutput,
+  ], env);
+  assert.equal(relativeNoBaseRun.code, 1);
+  assert.match(relativeNoBaseRun.stderr, /--base-url is required when --editor-url is relative/);
+  await assert.rejects(() => stat(relativeNoBaseOutput), { code: "ENOENT" });
+
   const helpRun = await runCli(["authenticate", "--help"]);
   assert.equal(helpRun.code, 0, helpRun.stderr || helpRun.stdout);
   assert.match(helpRun.stderr, /random temporary directory, e\.g\. \/tmp\/wordpress-inspector-XXXXXX/);
@@ -407,6 +443,35 @@ try {
   assert.equal(editorSummary.classification, "EDITOR_HEALTHY");
   assert.equal(editorSummary.checks.every(({ passed }) => passed), true);
 
+  const inferredEditorOutput = path.join(outputRoot, "inferred-editor");
+  const inferredEditorRun = await runCli([
+    "check-editor",
+    "--profile", "fake",
+    "--editor-url", editorUrl,
+    "--output-dir", inferredEditorOutput,
+    "--timeout", "10000",
+  ], env);
+  assert.equal(inferredEditorRun.code, 0, inferredEditorRun.stderr || inferredEditorRun.stdout);
+  const inferredEditorSummary = await readSummary(inferredEditorOutput);
+  assert.equal(inferredEditorSummary.baseUrl, baseUrl);
+  assert.equal(inferredEditorSummary.editorUrl, editorUrl);
+  assert.equal(inferredEditorSummary.classification, "EDITOR_HEALTHY");
+
+  const relativeEditorOutput = path.join(outputRoot, "relative-editor-with-base");
+  const relativeEditorRun = await runCli([
+    "check-editor",
+    "--base-url", baseUrl,
+    "--profile", "fake",
+    "--editor-url", "/wp-admin/post.php?post=1&action=edit",
+    "--output-dir", relativeEditorOutput,
+    "--timeout", "10000",
+  ], env);
+  assert.equal(relativeEditorRun.code, 0, relativeEditorRun.stderr || relativeEditorRun.stdout);
+  const relativeEditorSummary = await readSummary(relativeEditorOutput);
+  assert.equal(relativeEditorSummary.baseUrl, baseUrl);
+  assert.equal(relativeEditorSummary.editorUrl, editorUrl);
+  assert.equal(relativeEditorSummary.classification, "EDITOR_HEALTHY");
+
   const onboardingOutput = path.join(outputRoot, "onboarding-editor");
   const onboardingRun = await runCli([
     "check-editor",
@@ -479,7 +544,6 @@ try {
   const snapshotOutput = path.join(outputRoot, "editor-snapshot");
   const snapshotRun = await runCli([
     "snapshot-editor",
-    "--base-url", baseUrl,
     "--profile", "fake",
     "--editor-url", `${baseUrl}/wp-admin/post.php?post=1&action=edit&fixture=snapshot`,
     "--output-dir", snapshotOutput,
@@ -487,6 +551,7 @@ try {
   ], env);
   assert.equal(snapshotRun.code, 0, snapshotRun.stderr || snapshotRun.stdout);
   const snapshotSummary = await readSummary(snapshotOutput, "snapshot-editor.json");
+  assert.equal(snapshotSummary.baseUrl, baseUrl);
   assert.equal(snapshotSummary.classification, "EDITOR_SNAPSHOT_CAPTURED");
   assert.equal(snapshotSummary.artifacts.blocks.rootCount, 1);
   assert.equal(snapshotSummary.artifacts.blocks.totalCount, 2);
