@@ -160,19 +160,54 @@ function unavailableChecks(names) {
   return names.map((name) => actionCheck(name, null, "Generic Web Inspector report unavailable"));
 }
 
+function stateDirectoryFailure(stderr) {
+  return /ENOENT: no such file or directory, mkdir .*web-inspector|EACCES:.*web-inspector|Could not enforce owner-only permissions/i.test(String(stderr ?? ""));
+}
+
+function childExitedWithoutReport(run) {
+  const stdout = String(run?.stdout ?? "");
+  const stderr = String(run?.stderr ?? "");
+  const failed = run && (run.code !== 0 || Boolean(run.signal));
+  return Boolean(run?.report == null && failed && !stdout.trim() && !stderr.trim());
+}
+
+function browserLaunchBlocked(run) {
+  const stderr = String(run?.stderr ?? "");
+  if (stateDirectoryFailure(stderr)) return false;
+  return /sandbox_host_linux|Operation not permitted/i.test(stderr) || childExitedWithoutReport(run);
+}
+
 function webInspectorFailureWarning(run) {
   const stderr = String(run?.stderr ?? "");
   if (/Invalid profile name/i.test(stderr)) return "web-inspector-profile: invalid profile name";
+  if (browserLaunchBlocked(run) && /sandbox_host_linux|Operation not permitted/i.test(stderr)) {
+    return "web-inspector-runtime: Chromium launch was blocked by the execution sandbox; retry with elevated browser permission";
+  }
+  if (stateDirectoryFailure(stderr)) {
+    return "web-inspector-profile: state directory is unavailable; set WEB_INSPECTOR_STATE_DIR to a writable directory";
+  }
   if (/requires a graphical display|usable display environment/i.test(stderr)) return "web-inspector-runtime: headed mode requires a graphical display";
   if (/Could not resolve Playwright|No usable Firefox executable/i.test(stderr)) return "web-inspector-runtime: compatible Playwright runtime unavailable";
   if (/profile may already be in use|user data directory/i.test(stderr)) return "web-inspector-profile: profile is already in use";
+  if (browserLaunchBlocked(run)) return "web-inspector-runtime: browser launch was blocked before creating a report; in a managed sandbox, retry with elevated browser permission";
   return "web-inspector-runtime: failed before a report was created";
+}
+
+function webInspectorFailureClassification(run) {
+  return browserLaunchBlocked(run) ? "BROWSER_LAUNCH_BLOCKED" : "TECHNICAL_ERRORS";
 }
 
 function addFailureWarning(result, run) {
   if (run.report) return result;
-  const warnings = [...new Set([...(result.warnings ?? result.technical ?? []), webInspectorFailureWarning(run)])];
-  return { ...result, technical: warnings, warnings };
+  const blocked = browserLaunchBlocked(run);
+  const warnings = [...new Set([...(result.warnings ?? result.technical ?? []), webInspectorFailureWarning(run)])]
+    .filter((warning) => !(blocked && warning === "generic-report-unavailable"));
+  return {
+    ...result,
+    classification: blocked ? "BROWSER_LAUNCH_BLOCKED" : result.classification,
+    technical: warnings,
+    warnings,
+  };
 }
 
 function classifyAdmin(run) {
@@ -273,7 +308,7 @@ function classifySnapshot(run) {
       "EDITOR_SOURCE_UNAVAILABLE",
       "EDITOR_SOURCE_INVALID",
     ]);
-    const classification = ["AUTH_REQUIRED", "TECHNICAL_ERRORS"].includes(editorResult.classification)
+    const classification = ["AUTH_REQUIRED", "TECHNICAL_ERRORS", "BROWSER_LAUNCH_BLOCKED"].includes(editorResult.classification)
       ? editorResult.classification
       : supportedSnapshotErrors.has(snapshotFailure.code)
         ? snapshotFailure.code
@@ -516,7 +551,7 @@ async function findPostAuthenticated({ baseUrl, slug, postType, profile, timeout
   if (!run.report) {
     return {
       method: "authenticated",
-      classification: "TECHNICAL_ERRORS",
+      classification: webInspectorFailureClassification(run),
       matches: [],
       warnings: [webInspectorFailureWarning(run)],
       limitations: ["Authenticated lookup could not produce a Web Inspector report."],
@@ -676,7 +711,7 @@ async function main() {
         command: "authenticate",
         baseUrl,
         profile: parsed.profile,
-        classification: "TECHNICAL_ERRORS",
+        classification: webInspectorFailureClassification(authRun),
         reportPath: null,
         report: null,
         checks: unavailableChecks([

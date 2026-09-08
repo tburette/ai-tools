@@ -17,6 +17,18 @@ Core flags:
 `--fail-on-errors`
 `--output-dir <dir>`.
 
+## Managed Codex sandbox
+
+The Web Inspector launches a real Chromium process. In a managed Codex environment, Chromium can fail before `report.json` is written with an error such as `sandbox_host_linux` or `Operation not permitted`. This is a browser-process permission issue, not a page or application issue.
+
+When the default user state directory is unavailable, set `WEB_INSPECTOR_STATE_DIR` to a stable writable directory for the inspection session, for example:
+
+```bash
+WEB_INSPECTOR_STATE_DIR=/tmp/web-inspector/state
+```
+
+The command that launches Chromium must also request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`). The state-directory setting only fixes profile storage; it does not grant Chromium permission to start. Keep a persistent profile in that directory when authentication or cookies must survive between commands.
+
 ## Output
 
 Each run writes files to `--output-dir`:

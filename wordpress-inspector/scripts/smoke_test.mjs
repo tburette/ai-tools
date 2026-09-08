@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -131,8 +131,25 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const env = {
   WEB_INSPECTOR_STATE_DIR: stateRoot,
 };
+const blockedWebInspectorDir = path.join(tempRoot, "blocked-web-inspector");
+await mkdir(path.join(blockedWebInspectorDir, "scripts"), { recursive: true });
+await writeFile(path.join(blockedWebInspectorDir, "scripts", "capture_page.mjs"), "process.exitCode = 1;\n", "utf8");
 
 try {
+  const blockedOutput = path.join(outputRoot, "browser-launch-blocked");
+  const blockedRun = await runCli([
+    "check-admin",
+    "--base-url", baseUrl,
+    "--profile", "blocked-browser",
+    "--output-dir", blockedOutput,
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: blockedWebInspectorDir });
+  assert.equal(blockedRun.code, 1, blockedRun.stderr || blockedRun.stdout);
+  const blockedSummary = await readSummary(blockedOutput);
+  assert.equal(blockedSummary.classification, "BROWSER_LAUNCH_BLOCKED");
+  assert.equal(blockedSummary.warnings.includes("generic-report-unavailable"), false);
+  assert.match(blockedSummary.warnings.join(" "), /browser launch was blocked/i);
+
   const unauthOutput = path.join(outputRoot, "unauthenticated-admin");
   const unauthRun = await runCli([
     "check-admin",

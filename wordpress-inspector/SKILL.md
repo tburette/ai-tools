@@ -37,7 +37,7 @@ node scripts/wordpress_inspector.mjs find-post \
   --profile wp-local
 ```
 
-It accepts `--post-type page|post` (default `page`). It exits non-zero when nothing matches or the lookup could not complete. Output includes `method` (`public` or `authenticated`) and `classification` (`FOUND`, `NOT_FOUND`, `AUTH_REQUIRED`, or `TECHNICAL_ERRORS`).
+It accepts `--post-type page|post` (default `page`). It exits non-zero when nothing matches or the lookup could not complete. Output includes `method` (`public` or `authenticated`) and `classification` (`FOUND`, `NOT_FOUND`, `AUTH_REQUIRED`, `BROWSER_LAUNCH_BLOCKED`, or `TECHNICAL_ERRORS`).
 
 For info, there is another way if you have access to wp-cli:
 
@@ -65,6 +65,22 @@ WEB_INSPECTOR_SKILL_DIR=/path/to/web-inspector \
 If there is no sibling `../web-inspector` and no `WEB_INSPECTOR_SKILL_DIR` report the problem to the user and ask them to install web-inspector.
 
 A Web Inspector spawns with `process.execPath` and argument arrays. Each command writes a WordPress summary beside the underlying Web Inspector `report.json` and screenshot written on disk.
+
+## Managed Codex sandbox
+
+This workflow has two independent environment requirements when it runs in a managed Codex sandbox:
+
+1. **Profile storage.** Commands using `--profile` must be able to create and reuse the persistent browser profile. If the default state directory is unavailable, set one stable, writable directory for the whole workflow:
+
+```bash
+WEB_INSPECTOR_STATE_DIR=/tmp/wordpress-inspector/state
+```
+
+2. **Browser launch permission.** Chromium may be blocked by the execution sandbox even when no persistent profile is used. The direct browser diagnostic may contain `sandbox_host_linux` or `Operation not permitted`; the WordPress adapter reports this as `BROWSER_LAUNCH_BLOCKED`.
+
+For this environment, the command that launches Chromium must request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`). The state-directory setting fixes profile storage; it does not grant Chromium permission to start. Elevated permission fixes browser startup; it does not select or preserve the profile directory. Keep the same profile name and state directory for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`.
+
+Do not change the project’s `.wp-env.json` to solve this problem: WordPress and Docker configuration do not control the Codex process sandbox.
 
 ## Profile setup and authentication
 
@@ -197,6 +213,7 @@ Classification values:
 - `EDITOR_IFRAME_EMPTY` — the editor iframe was present but had no measurable document content;
 - `EDITOR_DATA_UNAVAILABLE` — Gutenberg's block-editor data store was unavailable;
 - `EDITOR_SOURCE_UNAVAILABLE` / `EDITOR_SOURCE_INVALID` — the single Gutenberg source selector could not provide a string;
+- `BROWSER_LAUNCH_BLOCKED` — the Web Inspector could not launch Chromium because the execution environment blocked the browser process; retry with elevated browser permission;
 - `TECHNICAL_ERRORS` — browser or network diagnostics failed.
 
 Authentication expiry is reported separately.
