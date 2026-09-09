@@ -56,34 +56,17 @@ export function inferBaseUrlFromEditorUrl(rawValue) {
   try {
     editorUrl = new URL(rawValue);
   } catch {
-    throw new Error("--base-url is required when --editor-url is relative; provide an absolute editor URL");
+    throw new Error("--editor-url must be an absolute http or https URL when --base-url is omitted");
   }
   if (!["http:", "https:"].includes(editorUrl.protocol)) {
-    throw new Error("--editor-url must use the same origin as --base-url");
+    throw new Error("--editor-url must be an absolute http or https URL when --base-url is omitted");
   }
   if (editorUrl.username || editorUrl.password) throw new Error("--editor-url must not contain credentials");
 
-  const postEditorSuffix = "/wp-admin/post.php";
-  const siteEditorSuffix = "/wp-admin/site-editor.php";
-  let basePath = null;
-  if (editorUrl.pathname.endsWith(postEditorSuffix)) {
-    const actionValues = editorUrl.searchParams.getAll("action");
-    const postValues = editorUrl.searchParams.getAll("post");
-    const validPostEditor = actionValues.length === 1
-      && actionValues[0] === "edit"
-      && postValues.length === 1
-      && /^\d+$/.test(postValues[0])
-      && Number(postValues[0]) > 0;
-    if (validPostEditor) basePath = editorUrl.pathname.slice(0, -postEditorSuffix.length);
-  } else if (editorUrl.pathname.endsWith(siteEditorSuffix) && !editorUrl.searchParams.has("action")) {
-    basePath = editorUrl.pathname.slice(0, -siteEditorSuffix.length);
-  }
-  if (basePath === null) {
-    throw new Error("--editor-url must target a supported read-only Gutenberg editor route (post.php?action=edit or site-editor.php)");
-  }
-
   const baseUrl = new URL(editorUrl.origin);
-  baseUrl.pathname = basePath || "/";
+  const adminPath = "/wp-admin/";
+  const adminIndex = editorUrl.pathname.indexOf(adminPath);
+  baseUrl.pathname = adminIndex >= 0 ? editorUrl.pathname.slice(0, adminIndex) || "/" : "/";
   return normalizeBaseUrl(baseUrl.toString());
 }
 

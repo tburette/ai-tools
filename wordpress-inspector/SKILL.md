@@ -157,7 +157,7 @@ node scripts/wordpress_inspector.mjs check-editor \
 
 `check-editor` only accepts the Gutenberg routes `post.php?action=edit&post=<positive-id>` and `site-editor.php`. It rejects arbitrary endpoints. The first version does not resolve post IDs, slugs, template IDs, or project-specific WordPress URLs; resolve those yourself (`find-post` may help). The site editor routes (`site-editor.php`) cover templates, template parts (direct `?p=/wp_template_part/...` URLs), navigation, and styles; `check-editor` inspects any of them once direct, editable content is targeted.
 
-When `--base-url` is omitted, `--editor-url` must be an absolute `http` or `https` URL targeting one of those supported routes. The adapter infers the base origin and any path prefix before `/wp-admin/`, and records the inferred value in the summary. Relative editor URLs still work when `--base-url` is supplied.
+When `--base-url` is omitted, `--editor-url` must be an absolute `http` or `https` URL targeting one of those supported routes. The adapter uses its origin as the base URL and, as a best effort for subdirectory installations, keeps the path before `/wp-admin/`; query parameters are not used for inference. It records the inferred value in the summary. Relative editor URLs still work when `--base-url` is supplied.
 
 The editor must be in **visual mode**. If the post/page editor is in **text mode** (showing source code), `check-editor` reports `EDITOR_LOAD_FAILED`.
 

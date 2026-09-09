@@ -235,13 +235,17 @@ try {
     inferBaseUrlFromEditorUrl(`http://example.test/blog/site/wp-admin/post.php?post=1&action=edit`),
     "http://example.test/blog/site",
   );
-  assert.throws(
-    () => inferBaseUrlFromEditorUrl("/wp-admin/post.php?post=1&action=edit"),
-    /--base-url is required when --editor-url is relative/,
+  assert.equal(
+    inferBaseUrlFromEditorUrl(`${baseUrl}/wp-admin/post.php?post=1&action=unexpected`),
+    baseUrl,
+  );
+  assert.equal(
+    inferBaseUrlFromEditorUrl(`${baseUrl}/some/other/path?post=1&action=edit`),
+    baseUrl,
   );
   assert.throws(
-    () => inferBaseUrlFromEditorUrl(`${baseUrl}/wp-admin/admin-post.php?action=delete`),
-    /supported read-only Gutenberg editor route/,
+    () => inferBaseUrlFromEditorUrl("/wp-admin/post.php?post=1&action=edit"),
+    /--editor-url must be an absolute http or https URL when --base-url is omitted/,
   );
   for (const [command, commandArgs] of [
     ["authenticate", ["--profile", "fake"]],
@@ -260,8 +264,17 @@ try {
     "--output-dir", relativeNoBaseOutput,
   ], env);
   assert.equal(relativeNoBaseRun.code, 1);
-  assert.match(relativeNoBaseRun.stderr, /--base-url is required when --editor-url is relative/);
+  assert.match(relativeNoBaseRun.stderr, /--editor-url must be an absolute http or https URL when --base-url is omitted/);
   await assert.rejects(() => stat(relativeNoBaseOutput), { code: "ENOENT" });
+
+  const unsupportedAbsoluteEditorRun = await runCli([
+    "check-editor",
+    "--profile", "fake",
+    "--editor-url", `${baseUrl}/wp-admin/admin-post.php?action=delete`,
+    "--output-dir", path.join(outputRoot, "unsupported-absolute-editor"),
+  ], env);
+  assert.equal(unsupportedAbsoluteEditorRun.code, 1);
+  assert.match(unsupportedAbsoluteEditorRun.stderr, /supported read-only Gutenberg editor route/);
 
   const helpRun = await runCli(["authenticate", "--help"]);
   assert.equal(helpRun.code, 0, helpRun.stderr || helpRun.stdout);

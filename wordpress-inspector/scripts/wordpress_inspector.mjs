@@ -845,6 +845,12 @@ async function findPost({ baseUrl, slug, postType, profile, timeout }) {
   };
 }
 
+function resolveBaseUrl(parsed) {
+  if (parsed.baseUrl !== null) return normalizeBaseUrl(parsed.baseUrl);
+  if (isEditorCommand(parsed.command)) return inferBaseUrlFromEditorUrl(parsed.editorUrl);
+  throw new Error("--base-url is required");
+}
+
 async function main() {
   // `main` validates the target and dispatches the public commands.
   // `authenticate` either submits supplied credentials headlessly or opens the
@@ -852,11 +858,7 @@ async function main() {
   // a sanitized summary.
   const parsed = parseArgs(process.argv.slice(2));
   const credentials = resolveAutomatedCredentials(parsed);
-  const baseUrl = parsed.baseUrl !== null
-    ? normalizeBaseUrl(parsed.baseUrl)
-    : isEditorCommand(parsed.command)
-      ? inferBaseUrlFromEditorUrl(parsed.editorUrl)
-      : normalizeBaseUrl(parsed.baseUrl);
+  const baseUrl = resolveBaseUrl(parsed);
 
   if (parsed.command === "find-post") {
     const result = await findPost({
