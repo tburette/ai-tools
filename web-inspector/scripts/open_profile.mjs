@@ -23,6 +23,7 @@ function usage(message) {
 Options:
   --profile <name>                Named persistent browser profile (default: default)
   --timeout <milliseconds>        Close after this time; exits non-zero if reached (optional)
+  --success-selector <selector>   Close successfully when this selector becomes visible (optional)
   --executable-path <path>        Browser executable to launch (advanced)
   --ignore-https-errors            Ignore certificate errors
   --no-local-map                  Do not map localhost/*.test to 127.0.0.1
@@ -35,12 +36,13 @@ function parseArgs(argv) {
   const options = {
     profile: DEFAULT_PROFILE_NAME,
     timeout: null,
+    successSelector: null,
     executablePath: null,
     localMap: true,
     ignoreHttpsErrors: false,
   };
   const positional = [];
-  const valueOptions = new Set(["profile", "timeout", "executable-path"]);
+  const valueOptions = new Set(["profile", "timeout", "success-selector", "executable-path"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -57,6 +59,7 @@ function parseArgs(argv) {
       index += 1;
       if (key === "profile") options.profile = validateProfileName(value);
       else if (key === "timeout") options.timeout = Number(value);
+      else if (key === "success-selector") options.successSelector = value;
       else if (key === "executable-path") options.executablePath = value;
     } else throw new Error(`Unknown option --${key}`);
   }
@@ -75,7 +78,7 @@ function writeStdoutLine(value) {
   });
 }
 
-function waitForClose(context, page, timeout, lifecycle) {
+function waitForClose(context, page, timeout, lifecycle, successSelector) {
   const browser = typeof context.browser === "function" ? context.browser() : null;
   return new Promise((resolve, reject) => {
     let timer = null;
@@ -143,6 +146,13 @@ function waitForClose(context, page, timeout, lifecycle) {
         }
       }, BROWSER_CONNECTION_POLL_MS);
     }
+    if (successSelector) {
+      page.locator(successSelector).first().waitFor({ state: "visible", timeout: 0 })
+        .then(() => requestContextClose("success"))
+        .catch((error) => {
+          if (!settled) fail(error);
+        });
+    }
   });
 }
 
@@ -188,12 +198,16 @@ async function main() {
     page.setDefaultTimeout(options.timeout);
     await page.goto(cliOptions.url, { waitUntil: "domcontentloaded", timeout: options.timeout });
     console.log(`Opened ${cliOptions.url} in dedicated Web Inspector profile "${options.profile}".`);
-    console.log("Complete any authorized interactive setup, then close the browser window to finish.");
+    if (cliOptions.successSelector) {
+      console.log("Complete any authorized interactive setup; the session will finish automatically when the success selector is visible, or close the browser window manually.");
+    } else {
+      console.log("Complete any authorized interactive setup, then close the browser window to finish.");
+    }
     if (cliOptions.timeout !== null) console.log(`The session will close automatically after ${cliOptions.timeout} ms.`);
-    const closeReason = await waitForClose(context, page, cliOptions.timeout, lifecycle);
+    const closeReason = await waitForClose(context, page, cliOptions.timeout, lifecycle, cliOptions.successSelector);
     await writeStdoutLine(`Interactive session ended: ${closeReason}.`);
     await writeStdoutLine(JSON.stringify({ event: "interactive-session-ended", sessionEndReason: closeReason }));
-    if (closeReason !== "window-closed") process.exitCode = 1;
+    if (!["window-closed", "success"].includes(closeReason)) process.exitCode = 1;
   } finally {
     if (!context.isClosed() && !lifecycle.contextCloseRequested && !lifecycle.contextClosed && !lifecycle.browserDisconnected) await context.close();
   }

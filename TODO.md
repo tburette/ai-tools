@@ -86,8 +86,3 @@
   editor, report if there is an issue retrieving the gutenberg data, and take
   the snapshot, all in a single script call. This would make using the skill way
   easier
-
-- SKILL.md :
-  - reorder section to be in a more logical order.
-  - Make the file shorter. Move thing that are not helpful for an agent into other file(s), be more concise,..
-  - rea the skill-creator skill and use it to improve SKILL.md

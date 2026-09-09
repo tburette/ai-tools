@@ -136,9 +136,13 @@ node scripts/capture_page.mjs http://localhost:3000/ --fail-on-errors --output-d
 
 `open_profile.mjs` detects the visible page, browser context, and browser
 connection closing, so it returns as soon as the interactive window is gone.
+Pass `--success-selector <selector>` when the caller can identify a successful
+interactive state; the runner closes the profile and returns with
+`sessionEndReason: "success"` as soon as that selector becomes visible.
 It prints a machine-readable `interactive-session-ended` record with one of
-`window-closed`, `timeout`, `SIGINT`, or `SIGTERM`. A normal `window-closed`
-session exits successfully; timeout and signal termination exit non-zero.
+`window-closed`, `success`, `timeout`, `SIGINT`, or `SIGTERM`. A normal close or
+success session exits successfully; timeout and signal termination exit
+non-zero.
 
 ## Workflow
 

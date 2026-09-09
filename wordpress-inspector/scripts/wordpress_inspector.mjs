@@ -216,7 +216,7 @@ function webInspectorFailureClassification(run) {
 
 function interactiveSessionFailureWarning(run) {
   if (run?.timedOut || run?.sessionEndReason === "timeout") {
-    return "Interactive profile session reached its timeout before the browser was closed.";
+    return "The authentication timeout was reached before WordPress login completed.";
   }
   if (run?.sessionEndReason === "SIGINT") return "Interactive profile session was interrupted by SIGINT.";
   if (run?.sessionEndReason === "SIGTERM") return "Interactive profile session was interrupted by SIGTERM.";
@@ -928,8 +928,9 @@ async function main() {
       url: loginUrl,
       profile,
       timeout: parsed.timeoutSpecified ? parsed.timeout : null,
+      successSelector: SELECTORS.adminShell,
     }));
-    if (authRun.code !== 0 || authRun.sessionEndReason !== "window-closed") {
+    if (authRun.code !== 0 || !["window-closed", "success"].includes(authRun.sessionEndReason)) {
       const summary = {
         ...createSummary({
           command: "authenticate",
@@ -979,7 +980,7 @@ async function main() {
     };
     const result = { ...adminResult, summary, summaryPath: path.join(outputDir, "wordpress-summary.json") };
     await writeSummary(result);
-    if (authRun.sessionEndReason !== "window-closed" || result.classification !== "AUTHENTICATED") process.exitCode = 1;
+    if (!["window-closed", "success"].includes(authRun.sessionEndReason) || result.classification !== "AUTHENTICATED") process.exitCode = 1;
     return;
   }
 

@@ -190,14 +190,21 @@ const args = process.argv.slice(2);
 if (args.includes("--headed") || args.includes("--headless")) {
   console.error("authenticate forwarded an unexpected display-mode flag");
   process.exitCode = 1;
+} else if (args.indexOf("--success-selector") < 0 || !args[args.indexOf("--success-selector") + 1]) {
+  console.error("authenticate did not forward the WordPress admin-shell success selector");
+  process.exitCode = 1;
 } else if (process.env.FAKE_OPEN_PROFILE_RESULT === "failed") {
   console.error("fake interactive profile failure");
   process.exitCode = 1;
 } else {
-  const sessionEndReason = process.env.FAKE_OPEN_PROFILE_RESULT === "timeout" ? "timeout" : "window-closed";
+  const sessionEndReason = process.env.FAKE_OPEN_PROFILE_RESULT === "timeout"
+    ? "timeout"
+    : process.env.FAKE_OPEN_PROFILE_RESULT === "window-closed"
+      ? "window-closed"
+      : "success";
   console.log("Interactive session ended: " + sessionEndReason + ".");
   console.log(JSON.stringify({ event: "interactive-session-ended", sessionEndReason }));
-  if (sessionEndReason !== "window-closed") process.exitCode = 1;
+  if (!["window-closed", "success"].includes(sessionEndReason)) process.exitCode = 1;
 }
 `, "utf8");
 await writeFile(path.join(authWebInspectorDir, "scripts", "capture_page.mjs"), `
@@ -295,13 +302,26 @@ try {
   const authSummary = await readSummary(authOutput);
   const authOutputJson = JSON.parse(authRun.stdout);
   assert.equal(authSummary.classification, "AUTHENTICATED");
-  assert.equal(authSummary.sessionEndReason, "window-closed");
+  assert.equal(authSummary.sessionEndReason, "success");
   assert.equal(authOutputJson.summary, path.join(authOutput, "wordpress-summary.json"));
   assert.equal(authSummary.browserReport, path.join(authOutput, "admin-check", "web-inspector", "report.json"));
   await stat(path.join(authOutput, "wordpress-summary.json"));
   await stat(path.join(authOutput, "admin-check", "auth-probe", "report.json"));
   await stat(authSummary.browserReport);
   await stat(authSummary.screenshots[0]);
+
+  const manualAuthOutput = path.join(outputRoot, "authenticate-manual-close");
+  const manualAuthRun = await runCli([
+    "authenticate",
+    "--base-url", baseUrl,
+    "--profile", "fake-auth",
+    "--output-dir", manualAuthOutput,
+    "--timeout", "10000",
+  ], { ...env, WEB_INSPECTOR_SKILL_DIR: authWebInspectorDir, FAKE_OPEN_PROFILE_RESULT: "window-closed" });
+  assert.equal(manualAuthRun.code, 0, manualAuthRun.stderr || manualAuthRun.stdout);
+  const manualAuthSummary = await readSummary(manualAuthOutput);
+  assert.equal(manualAuthSummary.classification, "AUTHENTICATED");
+  assert.equal(manualAuthSummary.sessionEndReason, "window-closed");
 
   const failedAuthOutput = path.join(outputRoot, "authenticate-failed");
   const failedAuthRun = await runCli([
@@ -330,7 +350,7 @@ try {
   const timedOutAuthSummary = await readSummary(timedOutAuthOutput);
   assert.equal(timedOutAuthSummary.classification, "TECHNICAL_ERRORS");
   assert.equal(timedOutAuthSummary.sessionEndReason, "timeout");
-  assert.match(timedOutAuthSummary.warnings.join(" "), /reached its timeout/);
+  assert.match(timedOutAuthSummary.warnings.join(" "), /authentication timeout was reached before WordPress login completed/);
   await assert.rejects(() => stat(path.join(timedOutAuthOutput, "admin-check")), { code: "ENOENT" });
 
   const defaultAuthRun = await runCli([

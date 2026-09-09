@@ -112,8 +112,9 @@ export function captureArgs({ url, profile = DEFAULT_PROFILE_NAME, outputDir, ti
   return args;
 }
 
-export function openProfileArgs({ url, profile = DEFAULT_PROFILE_NAME, timeout = null }) {
+export function openProfileArgs({ url, profile = DEFAULT_PROFILE_NAME, timeout = null, successSelector = null }) {
   const args = [url, "--profile", profile];
   if (timeout !== null) args.push("--timeout", String(timeout));
+  if (successSelector) args.push("--success-selector", successSelector);
   return args;
 }

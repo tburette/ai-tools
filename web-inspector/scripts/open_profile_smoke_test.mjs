@@ -42,6 +42,18 @@ class FakeBrowser extends EventEmitter {
 class FakePage extends EventEmitter {
   setDefaultTimeout() {}
 
+  locator(selector) {
+    return {
+      first: () => ({
+        waitFor: async () => {
+          if (selector !== "#wpcontent" || process.env.FAKE_CLOSE_MODE !== "success") {
+            await new Promise(() => {});
+          }
+        },
+      }),
+    };
+  }
+
   async goto() {
     const mode = process.env.FAKE_CLOSE_MODE;
     if (mode === "browser-disconnect") setTimeout(() => this.browser.disconnect(), 25);
@@ -89,7 +101,7 @@ module.exports = {
 };
 `, "utf8");
 
-function runOpenProfile(mode, { signal = null, timeout = null } = {}) {
+function runOpenProfile(mode, { signal = null, timeout = null, successSelector = null } = {}) {
   return new Promise((resolve, reject) => {
     const closeCountFile = path.join(tempRoot, `${mode}-close-count.txt`);
     const stdoutFile = path.join(tempRoot, `${mode}-stdout.txt`);
@@ -98,6 +110,7 @@ function runOpenProfile(mode, { signal = null, timeout = null } = {}) {
     const stderrFd = openSync(stderrFile, "w");
     const args = [openProfileScript, "http://fake.test/", "--profile", mode];
     if (timeout !== null) args.push("--timeout", String(timeout));
+    if (successSelector !== null) args.push("--success-selector", successSelector);
     const startedAt = Date.now();
     const child = spawn(process.execPath, args, {
       cwd: path.dirname(scriptDir),
@@ -158,6 +171,7 @@ function endRecord(stdout) {
 
 try {
   for (const testCase of [
+    { mode: "success", successSelector: "#wpcontent", expectedReason: "success", expectedCode: 0, expectedCloseCount: 1 },
     { mode: "browser-disconnect", expectedReason: "window-closed", expectedCode: 0, expectedCloseCount: null },
     { mode: "page-close", expectedReason: "window-closed", expectedCode: 0, expectedCloseCount: 1 },
     { mode: "timeout", timeout: 100, expectedReason: "timeout", expectedCode: 1, expectedCloseCount: 1 },

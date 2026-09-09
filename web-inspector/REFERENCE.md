@@ -42,11 +42,12 @@ node scripts/open_profile.mjs http://localhost:3000/ \
 ```
 
 Launches a visible dedicated Chromium window and returns as soon as the page,
-browser context, or browser connection closes. A timeout or SIGINT/SIGTERM also
-ends the session, but exits non-zero and is reported separately from a normal
-`window-closed` result. The runner emits a final `interactive-session-ended`
-JSON record with the session-end reason. Requires a usable `DISPLAY` or
-`WAYLAND_DISPLAY` on Linux. It does not detect login success or handle
+browser context, or browser connection closes. Pass `--success-selector` to
+close automatically when a visible success-state selector appears. A timeout
+or SIGINT/SIGTERM also ends the session, but exits non-zero and is reported
+separately from a normal `window-closed` or `success` result. The runner emits
+a final `interactive-session-ended` JSON record with the session-end reason.
+Requires a usable `DISPLAY` or `WAYLAND_DISPLAY` on Linux. It does not handle
 credentials.
 
 ## First-run runtime setup
