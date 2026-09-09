@@ -76,4 +76,13 @@
 - [x] wordpress-inspector/scripts/wordpress_inspector.mjs:145 (automatedLoginActions)
   is not checking the checkbox to remain connected
 
-- A single higher-level command—authenticate if needed, check the editor, and snapshot it—would make the common inspection workflow more convenient.
+- A single higher-level command that does the entire job of `snapshot-editor` in a
+  single command. It would trigger the command authenticate if needed, check the
+  editor, report if there is an issue retrieving the gutenberg data, and take
+  the snapshot, all in a single script call. This would make using the skill way
+  easier
+
+- SKILL.md : 
+  - reorder section to be in a more logical order.
+  - Make the file shorter. Move thing that are not helpful for an agent into other file(s), be more concise,..
+  - rea the skill-creator skill and use it to improve SKILL.md
