@@ -16,7 +16,6 @@ Core flags:
 `--action <json>`
 `--fail-on-errors`
 `--output-dir <dir>`
-`--screenshot-prefix <prefix>` for a descriptive automatic viewport screenshot filename.
 
 Captures and interactive profile setup use the permanent profile `default` when
 `--profile` is omitted. The profile is stored under the Web Inspector state
@@ -41,7 +40,7 @@ The command that launches Chromium must also request elevated browser permission
 
 Each run writes files to `--output-dir`:
 
-- **A PNG screenshot** per viewport (`1440x1100.png` by default); `--full-page` adds `-full`, and `--screenshot-prefix <prefix>` adds a descriptive prefix such as `editor-shell-1440x1100.png`.
+- **A PNG screenshot** per viewport (`1440x1100.png`); `--full-page` adds `-full`.
 - **`report.json`** — the machine-readable result. Highlights:
   - `status` — HTTP status code (e.g. 200, 404)
   - `title`, `finalUrl`, `viewport`

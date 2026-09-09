@@ -790,8 +790,11 @@ try {
   assert.equal(snapshotSummary.classification, "EDITOR_SNAPSHOT_CAPTURED");
   assert.equal(snapshotSummary.browserReport, path.join(snapshotOutput, "snapshot-editor", "report.json"));
   const snapshotBrowserReport = JSON.parse(await readFile(snapshotSummary.browserReport, "utf8"));
-  assert.equal(snapshotBrowserReport.options.screenshotPrefix, "editor-shell-");
   assert.equal(path.basename(snapshotBrowserReport.viewports[0].screenshot), "editor-shell-1440x1100.png");
+  await assert.rejects(
+    () => stat(path.join(snapshotOutput, "snapshot-editor", "1440x1100.png")),
+    { code: "ENOENT" },
+  );
   assert.equal(snapshotSummary.artifacts.blocks.rootCount, 1);
   assert.equal(snapshotSummary.artifacts.blocks.totalCount, 2);
   assert.equal(snapshotSummary.artifacts.source.method, "wp.data.select('core/editor').getEditedPostContent");

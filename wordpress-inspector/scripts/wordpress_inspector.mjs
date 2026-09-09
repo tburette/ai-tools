@@ -381,7 +381,7 @@ function authProbeChecks(command, run) {
   ];
 }
 
-async function captureInspection({ url, profile, outputDir, timeout, headed, headless, actions, collectorPath = null, screenshotPrefix = "", waitMs }) {
+async function captureInspection({ url, profile, outputDir, timeout, headed, headless, actions, collectorPath = null, waitMs }) {
   return runWebInspectorScript("capture_page.mjs", captureArgs({
     url,
     profile,
@@ -391,9 +391,32 @@ async function captureInspection({ url, profile, outputDir, timeout, headed, hea
     headless,
     actions,
     collectorPath,
-    screenshotPrefix,
     waitMs,
   }));
+}
+
+async function renameEditorShellScreenshots(run) {
+  if (!run.report) return run;
+
+  let renamed = false;
+  for (const viewport of run.report.viewports ?? []) {
+    if (!viewport.screenshot) continue;
+
+    const oldPath = path.resolve(viewport.screenshot);
+    const oldName = path.basename(oldPath);
+    if (oldName.startsWith("editor-shell-")) continue;
+
+    const newPath = path.join(path.dirname(oldPath), `editor-shell-${oldName}`);
+    await fs.rm(newPath, { force: true });
+    await fs.rename(oldPath, newPath);
+    viewport.screenshot = newPath;
+    renamed = true;
+  }
+
+  if (renamed && run.reportPath) {
+    await fs.writeFile(run.reportPath, `${JSON.stringify(run.report, null, 2)}\n`, "utf8");
+  }
+  return run;
 }
 
 function summaryFileName(command) {
@@ -414,9 +437,9 @@ async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeo
     headed,
     headless,
     actions: authProbeActions(),
-    screenshotPrefix: isEditorCommand(command) ? "editor-shell" : "",
     waitMs: 0,
   });
+  if (isEditorCommand(command)) await renameEditorShellScreenshots(authProbe);
   if (authProbe.report && authRequired(authProbe.report, [0, 1])) {
     const technical = technicalIssues(authProbe.report);
     const summary = createSummary({
@@ -476,9 +499,9 @@ async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeo
     headless,
     actions,
     collectorPath: command === "snapshot-editor" ? EDITOR_COLLECTOR_PATH : null,
-    screenshotPrefix: isEditorCommand(command) ? "editor-shell" : "",
     waitMs: 750,
   });
+  if (isEditorCommand(command)) await renameEditorShellScreenshots(run);
   const result = command === "snapshot-editor"
     ? classifySnapshot(run)
     : isEditorCommand(command)
