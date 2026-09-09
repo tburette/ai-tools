@@ -86,7 +86,7 @@ node -e 'const { devices } = require("playwright"); console.log(Object.keys(devi
 
 ## Interact and verify
 
-Repeat `--action` to click, fill, type, hover, press, select, scroll, wait, assert, and screenshot:
+Repeat `--action` to click, check, fill, type, hover, press, select, scroll, wait, assert, and screenshot:
 
 ```bash
 node scripts/capture_page.mjs http://localhost:3000/ \
@@ -105,6 +105,7 @@ Use a Playwright selector (`CSS`, `text=...`, or `role=...`); the runner operate
 | Action | JSON shape | Behavior |
 | --- | --- | --- |
 | `click` | `{"type":"click","selector":"..."}` | Click first matching element. Handles navigation. |
+| `check` | `{"type":"check","selector":"..."}` | Ensure the first matching checkbox or radio input is checked. |
 | `fill` | `{"type":"fill","selector":"...","value":"..."}` | Replace input/textarea/contenteditable value. Does not submit. |
 | `type` | `{"type":"type","selector":"...","value":"..."}` | Type text sequentially, generating keyboard events. |
 | `hover` | `{"type":"hover","selector":"..."}` | Move pointer over element; useful for hover menus/tooltips. |

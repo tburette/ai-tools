@@ -175,10 +175,15 @@ async function runAction(page, action, outputDir, index, viewport) {
   if (!action || typeof action !== "object") throw new Error(`Action ${index + 1} must be a JSON object`);
   const type = action.type;
   const selector = action.selector;
-  const selectorActions = ["click", "fill", "type", "hover", "press", "select", "assertVisible", "assertNotVisible", "assertText", "clickIfVisible"];
+  const selectorActions = ["click", "check", "fill", "type", "hover", "press", "select", "assertVisible", "assertNotVisible", "assertText", "clickIfVisible"];
   if (selectorActions.includes(type) && !selector) throw new Error(`Action ${index + 1} (${type}) requires selector`);
 
   if (type === "click") await page.locator(selector).first().click();
+  else if (type === "check") {
+    const locator = page.locator(selector).first();
+    await locator.check();
+    return { type, checked: await locator.isChecked() };
+  }
   else if (type === "fill") await page.locator(selector).first().fill(String(action.value ?? ""));
   else if (type === "type") await page.locator(selector).first().pressSequentially(String(action.value ?? ""));
   else if (type === "hover") await page.locator(selector).first().hover();
@@ -227,7 +232,7 @@ async function runAction(page, action, outputDir, index, viewport) {
     await page.screenshot({ path: filePath, fullPage: Boolean(action.fullPage) });
     return { type, screenshot: filePath };
   } else if (![
-    "click", "fill", "type", "hover", "press", "select", "scroll", "wait",
+    "click", "check", "fill", "type", "hover", "press", "select", "scroll", "wait",
     "assertVisible", "assertNotVisible", "assertText", "clickIfVisible", "screenshot",
   ].includes(type)) {
     throw new Error(`Unsupported action type "${type}"`);

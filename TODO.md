@@ -73,4 +73,7 @@
   hacks, no wp-cli, no direct database access.
   The SKILL.md "Retrieve post ID from frontend URL" section will have to be updated accordingly.
 
+- [x] wordpress-inspector/scripts/wordpress_inspector.mjs:145 (automatedLoginActions)
+  is not checking the checkbox to remain connected
+
 - A single higher-level command—authenticate if needed, check the editor, and snapshot it—would make the common inspection workflow more convenient.

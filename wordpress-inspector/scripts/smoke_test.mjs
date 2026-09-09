@@ -15,7 +15,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const wordpressScript = path.join(scriptDir, "wordpress_inspector.mjs");
 
 function loginPage() {
-  return `<!doctype html><html><body><form id="loginform" method="post" action="/wp-login.php"><label>Username <input id="user_login" name="log"></label><label>Password <input id="user_pass" name="pwd" type="password"></label><button id="wp-submit" type="submit">Log In</button></form></body></html>`;
+  return `<!doctype html><html><body><form id="loginform" method="post" action="/wp-login.php"><label>Username <input id="user_login" name="log"></label><label>Password <input id="user_pass" name="pwd" type="password"></label><label><input id="rememberme" name="rememberme" type="checkbox" value="forever"> Remember Me</label><button id="wp-submit" type="submit">Log In</button></form></body></html>`;
 }
 
 function pageFor(requestUrl, authenticated) {
@@ -97,6 +97,7 @@ function pageFor(requestUrl, authenticated) {
 function startServer() {
   let mutationCount = 0;
   let loginSubmissionCount = 0;
+  let rememberedLoginSubmissionCount = 0;
   const server = createServer(async (request, response) => {
     const requestUrl = new URL(request.url, "http://127.0.0.1");
     if (request.method !== "GET") {
@@ -107,7 +108,8 @@ function startServer() {
       let body = "";
       for await (const chunk of request) body += chunk;
       const form = new URLSearchParams(body);
-      if (form.get("log") === "fixture-user" && form.get("pwd") === "fixture-password") {
+      if (form.get("log") === "fixture-user" && form.get("pwd") === "fixture-password" && form.get("rememberme") === "forever") {
+        rememberedLoginSubmissionCount += 1;
         response.writeHead(302, {
           location: "/wp-admin/",
           "set-cookie": "wp-auth=ready; Path=/; Max-Age=3600",
@@ -139,6 +141,7 @@ function startServer() {
       server,
       getMutationCount: () => mutationCount,
       getLoginSubmissionCount: () => loginSubmissionCount,
+      getRememberedLoginSubmissionCount: () => rememberedLoginSubmissionCount,
     }));
   });
 }
@@ -170,7 +173,7 @@ async function readSummary(outputDir, fileName = "wordpress-summary.json") {
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "wordpress-inspector-smoke-"));
 const stateRoot = path.join(tempRoot, "state");
 const outputRoot = path.join(tempRoot, "outputs");
-const { server, getMutationCount, getLoginSubmissionCount } = await startServer();
+const { server, getMutationCount, getLoginSubmissionCount, getRememberedLoginSubmissionCount } = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 const env = {
@@ -364,6 +367,8 @@ try {
   const automatedReport = JSON.parse(await readFile(automatedSummary.loginAttemptReport, "utf8"));
   assert.equal(automatedReport.options.profile, "automated-auth");
   assert.equal(automatedReport.options.headed, false);
+  assert.deepEqual(automatedReport.viewports[0].actionResults.map(({ type }) => type), ["fill", "fill", "check", "click"]);
+  assert.equal(automatedReport.viewports[0].actionResults[2].checked, true);
   assert.equal(automatedReport.viewports[0].finalUrl, `${baseUrl}/wp-admin/`);
 
   // The same headless path may take credentials from environment variables,
@@ -383,6 +388,7 @@ try {
   assert.equal(environmentRun.code, 0, environmentRun.stderr || environmentRun.stdout);
   const environmentSummary = await readSummary(environmentOutput);
   assert.equal(environmentSummary.classification, "AUTHENTICATED");
+  assert.equal(getRememberedLoginSubmissionCount(), 2);
 
   const invalidAutomatedOutput = path.join(outputRoot, "authenticate-automated-invalid");
   const invalidAutomatedRun = await runCli([

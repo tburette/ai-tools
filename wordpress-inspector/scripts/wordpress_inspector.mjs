@@ -146,6 +146,7 @@ function automatedLoginActions(username, password) {
   return [
     { type: "fill", selector: SELECTORS.loginUser, value: username },
     { type: "fill", selector: SELECTORS.loginPassword, value: password },
+    { type: "check", selector: SELECTORS.loginRemember },
     { type: "click", selector: SELECTORS.loginSubmit },
   ];
 }

@@ -29,7 +29,7 @@ function pageFor(pathname) {
     : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web Inspector smoke test</title></head>
-<body><main><h1>Smoke test</h1><button id="open">Open</button><p id="message" hidden>Ready</p><p id="delayed" hidden>Late warning</p>${duplicate}${longText}</main>
+<body><main><h1>Smoke test</h1><button id="open">Open</button><label><input id="remember" type="checkbox"> Remember</label><p id="message" hidden>Ready</p><p id="delayed" hidden>Late warning</p>${duplicate}${longText}</main>
 <script>
 ${diagnostic}
 ${delayed}
@@ -182,6 +182,7 @@ try {
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
     "--action", JSON.stringify({ type: "assertVisible", selector: "#open" }),
+    "--action", JSON.stringify({ type: "check", selector: "#remember" }),
     "--action", JSON.stringify({ type: "assertNotVisible", selector: "#message" }),
     "--action", JSON.stringify({ type: "clickIfVisible", selector: "#message" }),
     "--action", JSON.stringify({ type: "click", selector: "#open" }),
@@ -192,9 +193,10 @@ try {
   assert.equal(actionRun.code, 0, actionRun.stderr || actionRun.stdout);
   const actionReport = await readReport(actionDir);
   assert.equal(actionReport.options.device, "Pixel 5");
-  assert.deepEqual(actionReport.viewports[0].actionResults.map(({ type }) => type), ["assertVisible", "assertNotVisible", "clickIfVisible", "click", "clickIfVisible", "assertText"]);
-  assert.equal(actionReport.viewports[0].actionResults[2].clicked, false);
-  assert.equal(actionReport.viewports[0].actionResults[4].clicked, true);
+  assert.deepEqual(actionReport.viewports[0].actionResults.map(({ type }) => type), ["assertVisible", "check", "assertNotVisible", "clickIfVisible", "click", "clickIfVisible", "assertText"]);
+  assert.equal(actionReport.viewports[0].actionResults[1].checked, true);
+  assert.equal(actionReport.viewports[0].actionResults[3].clicked, false);
+  assert.equal(actionReport.viewports[0].actionResults[5].clicked, true);
   assert.ok(actionReport.viewports[0].screenshot.endsWith("320x240.png"));
   assert.match(actionReport.viewports[0].runtime.userAgent, /Android/);
   if (browser === "chromium") assert.ok(actionReport.viewports[0].runtime.maxTouchPoints > 0);

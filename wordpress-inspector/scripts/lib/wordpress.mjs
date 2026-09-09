@@ -8,6 +8,7 @@ export const SELECTORS = {
   loginForm: "#loginform",
   loginUser: "#user_login",
   loginPassword: "#user_pass",
+  loginRemember: "#rememberme",
   loginSubmit: "#wp-submit",
   adminShell: ":is(#wpcontent, #wpbody, #wpadminbar)",
   editorShell: ":is(#editor, .edit-post-visual-editor, .edit-site-visual-editor)",

@@ -109,7 +109,7 @@ node scripts/wordpress_inspector.mjs authenticate \
   --password 'replace-with-the-password'
 ```
 
-Both options are required together and are valid only for `authenticate`. `--headless` is optional in this mode; `--headed` is rejected. The final result is based on the follow-up `check-admin` probe, so invalid credentials report `AUTH_REQUIRED`. Two-factor authentication, CAPTCHA, SSO, and customized login forms may still require the interactive flow.
+Both options are required together and are valid only for `authenticate`. Automated authentication checks WordPress's standard **Remember Me** control before submitting the form, so the persistent profile can retain the login. `--headless` is optional in this mode; `--headed` is rejected. The final result is based on the follow-up `check-admin` probe, so invalid credentials report `AUTH_REQUIRED`. Two-factor authentication, CAPTCHA, SSO, and customized login forms may still require the interactive flow.
 
 To avoid putting the password in shell history, the same values may be provided with `WORDPRESS_INSPECTOR_USERNAME` and `WORDPRESS_INSPECTOR_PASSWORD` instead of the two options:
 
