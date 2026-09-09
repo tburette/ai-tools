@@ -8,7 +8,10 @@ description: Inspect authorized WordPress administration and Gutenberg interface
 Use this skill for read-only inspection of the wp-admin side of a WordPress site, and especially Gutenberg editor pages. It is a thin WordPress adapter over the sibling `web-inspector`; use that skill directly if you need to perform general actions such as clicking around or filling forms.
 This tool is designed to be read-only. The only exception is automated authentication, which submits the supplied credentials to the WordPress login form and does not expose any content-mutation controls.
 
-Browser commands use the permanent Web Inspector profile `default` when `--profile` is omitted. Use `--profile <name>` when you need a separate profile, and keep that name unchanged across authentication and subsequent checks. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.
+Browser commands use the permanent Web Inspector profile `default` when `--profile` is omitted. Use `--profile <name>` when you need a separate profile, and keep that name unchanged across authentication and subsequent checks. If a command reports `AUTH_REQUIRED`, follow the [Authentication recovery](#authentication-recovery) steps before retrying the original command.  
+Keep the same profile name for successive related commands (`authenticate`, `check-admin`, `check-editor`, ...).
+
+Do not run two commands concurrently with the same profile.
 
 `find-post` is the exception: without `--profile` it uses the public REST API and does not open a browser; pass an explicit profile for an authenticated lookup of non-public content. Its `--base-url` remains required.
 
@@ -58,19 +61,9 @@ A Web Inspector spawns with `process.execPath` and argument arrays. Each command
 
 ## Managed Codex sandbox
 
-This workflow has two independent environment requirements when it runs in a managed Codex sandbox:
+Chromium may be blocked by the execution sandbox even when the default persistent profile is used. The direct browser diagnostic may contain `sandbox_host_linux` or `Operation not permitted`; the WordPress adapter reports this as `BROWSER_LAUNCH_BLOCKED`.
 
-1. **Profile storage.** Browser commands use the persistent profile `default` unless `--profile` selects another name. The profile must be able to create and reuse its state directory. If the default state directory is unavailable, set one stable, writable directory for the whole workflow:
-
-```bash
-WEB_INSPECTOR_STATE_DIR=/tmp/wordpress-inspector/state
-```
-
-2. **Browser launch permission.** Chromium may be blocked by the execution sandbox even when the default persistent profile is used. The direct browser diagnostic may contain `sandbox_host_linux` or `Operation not permitted`; the WordPress adapter reports this as `BROWSER_LAUNCH_BLOCKED`.
-
-For this environment, the command that launches Chromium must request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`). The state-directory setting fixes profile storage; it does not grant Chromium permission to start. Elevated permission fixes browser startup; it does not select or preserve the profile directory. Keep the same profile name and state directory for `authenticate`, `check-admin`, `check-editor`, and `snapshot-editor`; do not run two commands concurrently with the same profile.
-
-Do not change the project’s `.wp-env.json` to solve this problem: WordPress and Docker configuration do not control the Codex process sandbox.
+For this environment, the command that launches Chromium must request elevated browser permission (`sandbox_permissions: "require_escalated"` when using Codex `exec_command`).
 
 ## Profile setup and authentication
 

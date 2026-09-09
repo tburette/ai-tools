@@ -43,38 +43,43 @@
 
 - [x] reduce the number of needed arguments:
   - [x] make it possible to use wordpress-inspector (and web-inspector!) without
-    `--profile`. It would then use a default (permanent) profile. Then
-    `--profile` could be de-emphasized in SKILL.md.
-    Make a test (with a fresh agent) to check if the tool works without passing
-    profile. There is a default profile right? I'm not sure now..
+        `--profile`. It would then use a default (permanent) profile. Then
+        `--profile` could be de-emphasized in SKILL.md.
+        Make a test (with a fresh agent) to check if the tool works without passing
+        profile. There is a default profile right? I'm not sure now..
   - [x] Make --base-url optional if it can be inferred (by --editor-url).
-    and also update SKILL.md (and its examples!) to reflect that.
+        and also update SKILL.md (and its examples!) to reflect that.
   - [x] make `authenticate` headed by default
 
 - [x] Give the ability to wordpress-inspector to enter the admin login and password.
-  If the user gave the agent the login and password (or the information is
-  already known) then the login would be automated. Not even show the headed
-  browser. I think that with web-inspector you can simulate clicks and entering
-  input so that could be made to work.
+      If the user gave the agent the login and password (or the information is
+      already known) then the login would be automated. Not even show the headed
+      browser. I think that with web-inspector you can simulate clicks and entering
+      input so that could be made to work.
 
 - [x] Make `authenticate` go faster. At the moment it seems that the browser being
-  closed by the user is not detected. If the user sets the login and password
-  and close the browser then nothing happens. Either the user stops the agent
-  waiting on the call to the tool it made and tell it that he did the job,
-  otherwise a (long) timeout is hit.
-  Could the script (tool) call end immediately when the browser is manually
-  closed? That would be great to do that.
-  Could the detection of whether login worked or not be automated?
-  I wonder how the agent would know if the login was successful.. Is there an
-  easy way? I guess for now assuming it worked (unless timeout was hit) is best..
+      closed by the user is not detected. If the user sets the login and password
+      and close the browser then nothing happens. Either the user stops the agent
+      waiting on the call to the tool it made and tell it that he did the job,
+      otherwise a (long) timeout is hit.
+      Could the script (tool) call end immediately when the browser is manually
+      closed? That would be great to do that.
+      Could the detection of whether login worked or not be automated?
+      I wonder how the agent would know if the login was successful.. Is there an
+      easy way? I guess for now assuming it worked (unless timeout was hit) is best..
 
 - [x] Make `find-post` work on non-public content (drafts/private) too if that is possible.
-  Through the web or well published methods only: authenticated REST API or by retrieving the page. No
-  hacks, no wp-cli, no direct database access.
-  The SKILL.md "Retrieve post ID from frontend URL" section will have to be updated accordingly.
+      Through the web or well published methods only: authenticated REST API or by retrieving the page. No
+      hacks, no wp-cli, no direct database access.
+      The SKILL.md "Retrieve post ID from frontend URL" section will have to be updated accordingly.
 
 - [x] wordpress-inspector/scripts/wordpress_inspector.mjs:145 (automatedLoginActions)
-  is not checking the checkbox to remain connected
+      is not checking the checkbox to remain connected
+
+- [x] It turns out that (in codex) WEB_INSPECTOR_STATE_DIR is not needed. As long as
+      the command that launches Chromium has elevated permission it will work fine.
+      Modify SKILL.md in that light.Remove the section `Profile storage` from `Managed Codex sandbox` (wordpress-inspector/SKILL.md:59)
+      Do not change the code (keep WEB_INSPECTOR_STATE_DIR in the code).
 
 - A single higher-level command that does the entire job of `snapshot-editor` in a
   single command. It would trigger the command authenticate if needed, check the
@@ -82,7 +87,7 @@
   the snapshot, all in a single script call. This would make using the skill way
   easier
 
-- SKILL.md : 
+- SKILL.md :
   - reorder section to be in a more logical order.
   - Make the file shorter. Move thing that are not helpful for an agent into other file(s), be more concise,..
   - rea the skill-creator skill and use it to improve SKILL.md
