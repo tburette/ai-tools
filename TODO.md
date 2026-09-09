@@ -72,3 +72,5 @@
   Through the web or well published methods only: authenticated REST API or by retrieving the page. No
   hacks, no wp-cli, no direct database access.
   The SKILL.md "Retrieve post ID from frontend URL" section will have to be updated accordingly.
+
+- A single higher-level command—authenticate if needed, check the editor, and snapshot it—would make the common inspection workflow more convenient.
