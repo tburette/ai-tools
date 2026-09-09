@@ -67,7 +67,7 @@ function parseArgs(argv) {
   return { url: positional[0], ...options };
 }
 
-const BROWSER_CONNECTION_POLL_MS = 100;
+const BROWSER_CONNECTION_POLL_MS = 200;
 
 function writeStdoutLine(value) {
   return new Promise((resolve, reject) => {
