@@ -160,7 +160,7 @@ export function authRequired(report, authActionIndexes = []) {
 }
 
 export function createSummary({ command, baseUrl, editorUrl = null, profile, classification, reportPath, report, checks, warnings = [], limitations = [], artifacts = null }) {
-  // Keep the public artifact small and safe: paths to reports/screenshots are
+  // Keep the public artifact small and safe: paths to browser reports/screenshots are
   // useful for follow-up inspection, while cookies and browser storage stay
   // inside the persistent profile and are never serialized here. Snapshot
   // artifacts are referenced by path rather than copied into this summary.
@@ -179,7 +179,7 @@ export function createSummary({ command, baseUrl, editorUrl = null, profile, cla
     classification,
     checks,
     finalUrl: finalUrl(report),
-    genericReport: reportPath,
+    browserReport: reportPath,
     screenshots: screenshots(report),
     warnings,
     limitations,

@@ -31,6 +31,7 @@ Options:
   --headed                        Launch with a visible browser window
   --headless                      Force headless mode
   --full-page                    Capture the full scrollable page
+  --screenshot-prefix <prefix>   Prefix the automatic viewport screenshot filename
   --output-dir <path>             Output directory (default: /tmp/web-inspector/<timestamp>)
   --action <json>                 Repeatable interaction action
   --collector <path>              Read-only post-load collector module (advanced)
@@ -56,6 +57,12 @@ function parseViewport(value) {
   return { width, height };
 }
 
+function normalizeScreenshotPrefix(value) {
+  const normalized = String(value ?? "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!normalized) throw new Error("--screenshot-prefix must contain at least one filename-safe character");
+  return `${normalized}-`;
+}
+
 function parseArgs(argv) {
   const options = {
     browser: "chromium",
@@ -63,6 +70,7 @@ function parseArgs(argv) {
     actions: [],
     collectorPath: null,
     fullPage: false,
+    screenshotPrefix: "",
     outputDir: path.join(os.tmpdir(), "web-inspector", new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")),
     device: null,
     profile: DEFAULT_PROFILE_NAME,
@@ -84,6 +92,7 @@ function parseArgs(argv) {
     "device",
     "profile",
     "output-dir",
+    "screenshot-prefix",
     "action",
     "collector",
     "wait-until",
@@ -120,6 +129,7 @@ function parseArgs(argv) {
       } else if (key === "viewport") options.viewports.push(parseViewport(value));
       else if (key === "device") options.device = value;
       else if (key === "profile") options.profile = validateProfileName(value);
+      else if (key === "screenshot-prefix") options.screenshotPrefix = normalizeScreenshotPrefix(value);
       else if (key === "action") {
         try {
           options.actions.push(JSON.parse(value));
@@ -342,6 +352,7 @@ async function main() {
       viewports: options.viewports,
       device: options.device,
       fullPage: options.fullPage,
+      screenshotPrefix: options.screenshotPrefix,
       waitUntil: options.waitUntil,
       waitMs: options.waitMs,
       timeout: options.timeout,
@@ -409,7 +420,7 @@ async function main() {
         }
       }
 
-      const screenshotName = `${viewport.width}x${viewport.height}${options.fullPage ? "-full" : ""}.png`;
+      const screenshotName = `${options.screenshotPrefix}${viewport.width}x${viewport.height}${options.fullPage ? "-full" : ""}.png`;
       const screenshotPath = path.join(outputDir, screenshotName);
       await page.screenshot({ path: screenshotPath, fullPage: options.fullPage });
       item.screenshot = screenshotPath;

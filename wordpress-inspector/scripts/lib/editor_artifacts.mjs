@@ -37,7 +37,7 @@ async function findEditorIframe(page) {
   );
 }
 
-async function captureRenderedIframe(page, iframe, outputDir) {
+async function captureEditorCanvas(page, iframe, outputDir) {
   const dimensions = await iframe.evaluate((element) => {
     const document = element.contentDocument;
     const html = document?.documentElement;
@@ -57,7 +57,7 @@ async function captureRenderedIframe(page, iframe, outputDir) {
     throw snapshotError("EDITOR_IFRAME_EMPTY", "The Gutenberg editor iframe has no measurable document content.");
   }
 
-  const screenshotPath = path.join(outputDir, "rendered-iframe.png");
+  const screenshotPath = path.join(outputDir, "editor-canvas-full.png");
   // Gutenberg keeps the iframe inside a fixed-height, clipped editor shell. A
   // single element screenshot therefore paints only the visible viewport even
   // when the iframe document is much taller; capture viewport tiles instead.
@@ -324,14 +324,14 @@ export function formatBlocksTree({ blocks, postType, postId }) {
 
 export async function collect({ page, outputDir }) {
   const { iframe, index, details } = await findEditorIframe(page);
-  const renderedIframe = await captureRenderedIframe(page, iframe, outputDir);
-  renderedIframe.iframeIndex = index;
+  const editorCanvasScreenshot = await captureEditorCanvas(page, iframe, outputDir);
+  editorCanvasScreenshot.iframeIndex = index;
   const state = await readEditorState(page);
   const blocksPath = path.join(outputDir, "blocks.json");
-  const blocksTreePath = path.join(outputDir, "blocks.txt");
+  const blockTreeTextPath = path.join(outputDir, "blocks.txt");
   const sourcePath = path.join(outputDir, "source.html");
-  const blocksTreeContent = formatBlocksTree(state);
-  await fs.writeFile(blocksTreePath, blocksTreeContent, "utf8");
+  const blockTreeTextContent = formatBlocksTree(state);
+  await fs.writeFile(blockTreeTextPath, blockTreeTextContent, "utf8");
   await fs.writeFile(blocksPath, `${JSON.stringify({
     version: 1,
     postType: state.postType,
@@ -342,8 +342,8 @@ export async function collect({ page, outputDir }) {
 
   return {
     version: 1,
-    renderedIframe: {
-      ...renderedIframe,
+    editorCanvasScreenshot: {
+      ...editorCanvasScreenshot,
       measuredScrollWidth: details.scrollWidth,
       measuredScrollHeight: details.scrollHeight,
     },
@@ -352,9 +352,9 @@ export async function collect({ page, outputDir }) {
       rootCount: state.blocks.length,
       totalCount: countBlocks(state.blocks),
     },
-    blocksTree: {
-      path: blocksTreePath,
-      lineCount: blocksTreeContent.split("\n").length - 1,
+    blockTreeText: {
+      path: blockTreeTextPath,
+      lineCount: blockTreeTextContent.split("\n").length - 1,
     },
     source: {
       path: sourcePath,

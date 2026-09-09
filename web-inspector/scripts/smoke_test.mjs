@@ -173,6 +173,7 @@ try {
   const actionRun = await runCapture(`${baseUrl}/`, [
     "--viewport", "320x240",
     "--device", "Pixel 5",
+    "--screenshot-prefix", "editor-shell",
     "--wait-until", "domcontentloaded",
     "--wait-ms", "0",
     "--action", JSON.stringify({ type: "assertVisible", selector: "#open" }),
@@ -186,10 +187,11 @@ try {
   assert.equal(actionRun.code, 0, actionRun.stderr || actionRun.stdout);
   const actionReport = await readReport(actionDir);
   assert.equal(actionReport.options.device, "Pixel 5");
+  assert.equal(actionReport.options.screenshotPrefix, "editor-shell-");
   assert.deepEqual(actionReport.viewports[0].actionResults.map(({ type }) => type), ["assertVisible", "assertNotVisible", "clickIfVisible", "click", "clickIfVisible", "assertText"]);
   assert.equal(actionReport.viewports[0].actionResults[2].clicked, false);
   assert.equal(actionReport.viewports[0].actionResults[4].clicked, true);
-  assert.ok(actionReport.viewports[0].screenshot.endsWith("320x240.png"));
+  assert.ok(actionReport.viewports[0].screenshot.endsWith("editor-shell-320x240.png"));
   assert.match(actionReport.viewports[0].runtime.userAgent, /Android/);
   if (browser === "chromium") assert.ok(actionReport.viewports[0].runtime.maxTouchPoints > 0);
   assert.equal(actionReport.viewports[0].runtime.devicePixelRatio, 2.75);

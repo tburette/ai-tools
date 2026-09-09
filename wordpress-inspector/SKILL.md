@@ -143,7 +143,7 @@ node scripts/wordpress_inspector.mjs check-admin \
 - Login form absent (`#loginform`)
 - Login username control absent (`#user_login`)
 - Admin shell visible (`#wpcontent`, `#wpbody`, or `#wpadminbar`)
-- Browser diagnostics clear (console errors, failed requests, navigation failures)
+- No blocking browser errors (console errors, failed requests, navigation failures); the raw browser report may still contain harmless warnings or ignored editor-internal requests.
 
 ## check-editor
 
@@ -172,7 +172,7 @@ When all editor health checks pass, `check-editor` reports `EDITOR_HEALTHY`. Thi
 - Block recovery prompt absent (`.block-editor-block-recovery`, `.block-editor-block-recovery__dialog`)
 - Missing block placeholder absent (`.wp-block-missing`)
 - Fatal editor error absent (`.editor-error`, `.block-editor-error-boundary`)
-- Browser diagnostics clear (console errors, failed requests, navigation failures)
+- No blocking browser errors (console errors, failed requests, navigation failures); the raw browser report may still contain harmless warnings or ignored editor-internal requests.
 
 ## Editor snapshots
 
@@ -199,18 +199,20 @@ On success, the output directory contains:
 <output-dir>/
 ├── snapshot-editor/
 │   ├── report.json
-│   ├── rendered-iframe.png
+│   ├── editor-shell-1440x1100.png
+│   ├── editor-canvas-full.png
 │   ├── blocks.json
 │   ├── blocks.txt
 │   └── source.html
 └── snapshot-editor.json
 ```
 
-- `rendered-iframe.png` is a screenshot of the complete iframe document.
+- `editor-shell-1440x1100.png` is the Web Inspector screenshot of the editor shell at the default viewport.
+- `editor-canvas-full.png` is the stitched screenshot of the complete editor canvas.
 - `blocks.json` is the Gutenberg block tree from `wp.data.select('core/block-editor').getBlocks()`.
 - `blocks.txt` is a compact ASCII tree of the same blocks. This is a shorter, human-readable view and does not replace `blocks.json`.
 - `source.html` is the current post/page edited source returned by `wp.data.select('core/editor').getEditedPostContent()`; it is written as-is. A Site Editor page may not expose the source code editing view (`core/editor` source selector); in that case `snapshot-editor` reports `EDITOR_SOURCE_UNAVAILABLE`.
-- `snapshot-editor.json` references these artifact files : `renderedIframe`, `blocks`, `blocksTree`, and `source` along with records sizes, dimensions, and a source hash.
+- `snapshot-editor.json` references these artifact files as `editorCanvasScreenshot`, `blocks`, `blockTreeText`, and `source`, along with record sizes, dimensions, and a source hash. Its `browserReport` field points to `snapshot-editor/report.json`.
 
 ### Classifications and artifacts
 
@@ -221,7 +223,7 @@ The check summary (`wordpress-summary.json`) and editor snapshot summary (`snaps
 - profile name
 - checks
 - classification (result of the request)
-- links to the generic report and screenshots
+- links to the browser report and screenshots
 - named warnings (for example `invalid-block-warning`, `block-recovery-prompt`, `missing-block-placeholder`, or `fatal-editor-error`), and limitations.
 
 Classification values:

@@ -294,10 +294,10 @@ try {
   assert.equal(authSummary.classification, "AUTHENTICATED");
   assert.equal(authSummary.sessionEndReason, "window-closed");
   assert.equal(authOutputJson.summary, path.join(authOutput, "wordpress-summary.json"));
-  assert.equal(authSummary.genericReport, path.join(authOutput, "admin-check", "web-inspector", "report.json"));
+  assert.equal(authSummary.browserReport, path.join(authOutput, "admin-check", "web-inspector", "report.json"));
   await stat(path.join(authOutput, "wordpress-summary.json"));
   await stat(path.join(authOutput, "admin-check", "auth-probe", "report.json"));
-  await stat(authSummary.genericReport);
+  await stat(authSummary.browserReport);
   await stat(authSummary.screenshots[0]);
 
   const failedAuthOutput = path.join(outputRoot, "authenticate-failed");
@@ -360,7 +360,7 @@ try {
   assert.equal(automatedSummary.classification, "AUTHENTICATED");
   assert.equal(automatedSummary.loginAttemptReport, path.join(automatedOutput, "login-attempt", "report.json"));
   await stat(automatedSummary.loginAttemptReport);
-  await stat(automatedSummary.genericReport);
+  await stat(automatedSummary.browserReport);
   const automatedReport = JSON.parse(await readFile(automatedSummary.loginAttemptReport, "utf8"));
   assert.equal(automatedReport.options.profile, "automated-auth");
   assert.equal(automatedReport.options.headed, false);
@@ -461,7 +461,7 @@ try {
   assert.equal(blockedRun.code, 1, blockedRun.stderr || blockedRun.stdout);
   const blockedSummary = await readSummary(blockedOutput);
   assert.equal(blockedSummary.classification, "BROWSER_LAUNCH_BLOCKED");
-  assert.equal(blockedSummary.warnings.includes("generic-report-unavailable"), false);
+  assert.equal(blockedSummary.warnings.includes("browser-report-unavailable"), false);
   assert.match(blockedSummary.warnings.join(" "), /browser launch was blocked/i);
 
   const unauthOutput = path.join(outputRoot, "unauthenticated-admin");
@@ -509,7 +509,7 @@ try {
   ], env);
   assert.equal(defaultAdminRun.code, 0, defaultAdminRun.stderr || defaultAdminRun.stdout);
   const defaultAdminSummary = await readSummary(defaultAdminOutput);
-  const defaultAdminReport = JSON.parse(await readFile(defaultAdminSummary.genericReport, "utf8"));
+  const defaultAdminReport = JSON.parse(await readFile(defaultAdminSummary.browserReport, "utf8"));
   assert.equal(defaultAdminSummary.profile, "default");
   assert.equal(defaultAdminReport.options.profile, "default");
   assert.equal(defaultAdminReport.options.persistentContext, true);
@@ -675,6 +675,8 @@ try {
   const editorSummary = await readSummary(editorOutput);
   assert.equal(editorSummary.classification, "EDITOR_HEALTHY");
   assert.equal(editorSummary.checks.every(({ passed }) => passed), true);
+  assert.equal(editorSummary.checks.find(({ name }) => name === "no blocking browser errors").passed, true);
+  assert.equal(path.basename(editorSummary.screenshots[0]), "editor-shell-1440x1100.png");
 
   const inferredEditorOutput = path.join(outputRoot, "inferred-editor");
   const inferredEditorRun = await runCli([
@@ -786,19 +788,24 @@ try {
   const snapshotSummary = await readSummary(snapshotOutput, "snapshot-editor.json");
   assert.equal(snapshotSummary.baseUrl, baseUrl);
   assert.equal(snapshotSummary.classification, "EDITOR_SNAPSHOT_CAPTURED");
+  assert.equal(snapshotSummary.browserReport, path.join(snapshotOutput, "snapshot-editor", "report.json"));
+  const snapshotBrowserReport = JSON.parse(await readFile(snapshotSummary.browserReport, "utf8"));
+  assert.equal(snapshotBrowserReport.options.screenshotPrefix, "editor-shell-");
+  assert.equal(path.basename(snapshotBrowserReport.viewports[0].screenshot), "editor-shell-1440x1100.png");
   assert.equal(snapshotSummary.artifacts.blocks.rootCount, 1);
   assert.equal(snapshotSummary.artifacts.blocks.totalCount, 2);
   assert.equal(snapshotSummary.artifacts.source.method, "wp.data.select('core/editor').getEditedPostContent");
-  assert.ok(snapshotSummary.artifacts.renderedIframe.height > 1100);
-  assert.equal(snapshotSummary.artifacts.renderedIframe.captureMode, "scroll-stitch");
-  assert.ok(snapshotSummary.artifacts.renderedIframe.tileCount > 1);
-  assert.ok((await stat(snapshotSummary.artifacts.renderedIframe.path)).size > 0);
+  assert.ok(snapshotSummary.artifacts.editorCanvasScreenshot.height > 1100);
+  assert.equal(snapshotSummary.artifacts.editorCanvasScreenshot.captureMode, "scroll-stitch");
+  assert.equal(path.basename(snapshotSummary.artifacts.editorCanvasScreenshot.path), "editor-canvas-full.png");
+  assert.ok(snapshotSummary.artifacts.editorCanvasScreenshot.tileCount > 1);
+  assert.ok((await stat(snapshotSummary.artifacts.editorCanvasScreenshot.path)).size > 0);
   const snapshotBlocks = JSON.parse(await readFile(snapshotSummary.artifacts.blocks.path, "utf8"));
   assert.equal(snapshotBlocks.blocks[0].innerBlocks[0].name, "core/paragraph");
   assert.equal(await readFile(snapshotSummary.artifacts.source.path, "utf8"), "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph --><p>Snapshot fixture</p><!-- /wp:paragraph --></div><!-- /wp:group -->");
-  assert.equal(snapshotSummary.artifacts.blocksTree.lineCount, 4);
+  assert.equal(snapshotSummary.artifacts.blockTreeText.lineCount, 4);
   assert.equal(
-    await readFile(snapshotSummary.artifacts.blocksTree.path, "utf8"),
+    await readFile(snapshotSummary.artifacts.blockTreeText.path, "utf8"),
     "page=1 postType=page\n.\n└── group\n    └── paragraph [content: Snapshot fixture]\n",
   );
 

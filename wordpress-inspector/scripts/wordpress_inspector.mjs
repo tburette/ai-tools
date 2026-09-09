@@ -152,7 +152,7 @@ function automatedLoginActions(username, password) {
 
 function editorActions() {
   // Keep this order in sync with classifyEditor(): the classifier refers to
-  // action indexes in the generic Web Inspector report (3 = shell, 4 = canvas,
+  // action indexes in the browser report (3 = shell, 4 = canvas,
   // 5-7 = invalid/recovery/missing indicators, and 8 = fatal editor error).
   // TODO: replace this positional-index coupling with named action ids.
   return [
@@ -173,7 +173,7 @@ function actionCheck(name, passed, detail = null) {
 }
 
 function unavailableChecks(names) {
-  return names.map((name) => actionCheck(name, null, "Generic Web Inspector report unavailable"));
+  return names.map((name) => actionCheck(name, null, "Browser report unavailable"));
 }
 
 function stateDirectoryFailure(stderr) {
@@ -235,7 +235,7 @@ function addFailureWarning(result, run) {
   if (run.report) return result;
   const blocked = browserLaunchBlocked(run);
   const warnings = [...new Set([...(result.warnings ?? result.technical ?? []), webInspectorFailureWarning(run)])]
-    .filter((warning) => !(blocked && warning === "generic-report-unavailable"));
+    .filter((warning) => !(blocked && warning === "browser-report-unavailable"));
   return {
     ...result,
     classification: blocked ? "BROWSER_LAUNCH_BLOCKED" : result.classification,
@@ -253,9 +253,9 @@ function classifyAdmin(run) {
         "login form absent",
         "login username control absent",
         "wp-admin shell visible",
-        "browser diagnostics clear",
+        "no blocking browser errors",
       ]),
-      technical: ["generic-report-unavailable"],
+      technical: ["browser-report-unavailable"],
     };
   }
   const technical = technicalIssues(report);
@@ -265,7 +265,7 @@ function classifyAdmin(run) {
     actionCheck("login form absent", !actionFailed(report, 0)),
     actionCheck("login username control absent", !actionFailed(report, 1)),
     actionCheck("wp-admin shell visible", !shellFailed),
-    actionCheck("browser diagnostics clear", technical.length === 0, technical.join(", ") || null),
+    actionCheck("no blocking browser errors", technical.length === 0, technical.join(", ") || null),
   ];
   let classification = "AUTHENTICATED";
   if (auth) classification = "AUTH_REQUIRED";
@@ -290,9 +290,9 @@ function classifyEditor(run) {
         "editor canvas visible",
         "invalid-block indicators absent",
         "editor fatal-error indicator absent",
-        "browser diagnostics clear",
+        "no blocking browser errors",
       ]),
-      technical: ["generic-report-unavailable"],
+      technical: ["browser-report-unavailable"],
     };
   }
   const technical = technicalIssues(report);
@@ -308,7 +308,7 @@ function classifyEditor(run) {
     actionCheck("editor canvas visible", !canvasFailed),
     actionCheck("invalid-block indicators absent", !invalid),
     actionCheck("editor fatal-error indicator absent", !fatal),
-    actionCheck("browser diagnostics clear", technical.length === 0, technical.join(", ") || null),
+    actionCheck("no blocking browser errors", technical.length === 0, technical.join(", ") || null),
   ];
   let classification = "EDITOR_HEALTHY";
   if (auth) classification = "AUTH_REQUIRED";
@@ -331,7 +331,7 @@ function classifySnapshot(run) {
   const snapshotCheck = actionCheck(
     "editor snapshot artifacts captured",
     snapshotFailure ? false : report ? true : null,
-    snapshotFailure?.message ?? (report ? null : "Generic Web Inspector report unavailable"),
+    snapshotFailure?.message ?? (report ? null : "Browser report unavailable"),
   );
   const checks = [...editorResult.checks, snapshotCheck];
   if (snapshotFailure) {
@@ -366,7 +366,7 @@ function authProbeChecks(command, run) {
     "login form absent",
     "login username control absent",
     isEditorCommand(command) ? "editor readiness probe" : "wp-admin readiness probe",
-    "browser diagnostics clear",
+    "no blocking browser errors",
   ]);
   const technical = technicalIssues(report);
   return [
@@ -377,11 +377,11 @@ function authProbeChecks(command, run) {
       null,
       "Skipped after authentication probe detected a login screen",
     ),
-    actionCheck("browser diagnostics clear", technical.length === 0, technical.join(", ") || null),
+    actionCheck("no blocking browser errors", technical.length === 0, technical.join(", ") || null),
   ];
 }
 
-async function captureInspection({ url, profile, outputDir, timeout, headed, headless, actions, collectorPath = null, waitMs }) {
+async function captureInspection({ url, profile, outputDir, timeout, headed, headless, actions, collectorPath = null, screenshotPrefix = "", waitMs }) {
   return runWebInspectorScript("capture_page.mjs", captureArgs({
     url,
     profile,
@@ -391,6 +391,7 @@ async function captureInspection({ url, profile, outputDir, timeout, headed, hea
     headless,
     actions,
     collectorPath,
+    screenshotPrefix,
     waitMs,
   }));
 }
@@ -413,6 +414,7 @@ async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeo
     headed,
     headless,
     actions: authProbeActions(),
+    screenshotPrefix: isEditorCommand(command) ? "editor-shell" : "",
     waitMs: 0,
   });
   if (authProbe.report && authRequired(authProbe.report, [0, 1])) {
@@ -460,20 +462,21 @@ async function runCheck({ command, baseUrl, editorUrl, profile, outputDir, timeo
       report: null,
       checks: result.checks,
       warnings: result.warnings,
-      limitations: ["Read-only inspection; the generic Web Inspector report was unavailable."],
+      limitations: ["Read-only inspection; the browser report was unavailable."],
     });
     return { ...authProbe, ...result, summary, summaryPath: path.join(outputDir, summaryFileName(command)) };
   }
-  const genericOutputDir = path.join(outputDir, command === "snapshot-editor" ? "snapshot-editor" : "web-inspector");
+  const browserOutputDir = path.join(outputDir, command === "snapshot-editor" ? "snapshot-editor" : "web-inspector");
   const run = await captureInspection({
     url,
     profile,
-    outputDir: genericOutputDir,
+    outputDir: browserOutputDir,
     timeout,
     headed,
     headless,
     actions,
     collectorPath: command === "snapshot-editor" ? EDITOR_COLLECTOR_PATH : null,
+    screenshotPrefix: isEditorCommand(command) ? "editor-shell" : "",
     waitMs: 750,
   });
   const result = command === "snapshot-editor"
