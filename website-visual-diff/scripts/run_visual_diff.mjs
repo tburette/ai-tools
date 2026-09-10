@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { prepareBrowserViewer } from "./browser_viewer.mjs";
 import { ensureEmptyDirectory } from "./output_directory.mjs";
 import { resolveCssReference } from "./resolve_css.mjs";
+import { writeReportSummary } from "./summarize_report.mjs";
 
 const DEFAULT_VIEWPORTS = [
   { width: 1440, height: 1100 },
@@ -279,7 +280,8 @@ async function readReport(captureDir, label) {
     }
     throw new Error(`${label} could not load the page; refusing to compare an incomplete capture.\n${details}${hint}`);
   }
-  return report;
+  const summaryPath = await writeReportSummary(reportPath, report);
+  return { report, summaryPath };
 }
 
 function cacheBustedUrl(originalUrl, token) {
@@ -325,8 +327,8 @@ async function capture({
     cwd: webInspectorDir,
     env: { ...process.env, WEB_INSPECTOR_STATE_DIR: stateRoot },
   });
-  const report = await readReport(outputDir, `${phase} capture for ${url}`);
-  return { url, cacheBustedUrl: cacheBusted, profile, outputDir, reportPath: path.join(outputDir, "report.json") };
+  const { report, summaryPath } = await readReport(outputDir, `${phase} capture for ${url}`);
+  return { url, cacheBustedUrl: cacheBusted, profile, outputDir, reportPath: path.join(outputDir, "report.json"), summaryPath };
 }
 
 async function restoreCss({ commentScript, statePath }) {
@@ -348,7 +350,13 @@ async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cs
     const comparisonLink = target.comparisonDir
       ? `<a href="${relativeUrl(outputDir, path.join(target.comparisonDir, "index.html"))}">open comparison</a>`
       : "comparison unavailable";
-    return `<li><strong>${htmlEscape(target.originalUrl)}</strong> — ${comparisonLink}</li>`;
+    const beforeSummaryLink = target.before?.summaryPath
+      ? `<a href="${relativeUrl(outputDir, target.before.summaryPath)}">original capture summary</a>`
+      : "original summary unavailable";
+    const afterSummaryLink = target.after?.summaryPath
+      ? `<a href="${relativeUrl(outputDir, target.after.summaryPath)}">changed capture summary</a>`
+      : "changed summary unavailable";
+    return `<li><strong>${htmlEscape(target.originalUrl)}</strong> — ${comparisonLink} · ${beforeSummaryLink} · ${afterSummaryLink}</li>`;
   }).join("\n");
   const errors = [error, restoration.error, openWarning].filter(Boolean);
   const errorHtml = errors.length
