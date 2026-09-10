@@ -440,6 +440,7 @@ async function main() {
   let openWarning = null;
   let viewerPath = null;
   let cssDisabled = false;
+  let runData = null;
 
   try {
     for (const target of targets) {
@@ -500,10 +501,11 @@ async function main() {
       }
     }
     if (removeStateRoot) await fs.rm(stateRoot, { recursive: true, force: true }).catch(() => {});
-    const runData = {
+    runData = {
       version: 1,
       status: failure || restoration.error ? "failed" : "complete",
       generatedAt: new Date().toISOString(),
+      outputDir,
       cssFile,
       ranges: resolvedRanges,
       cssReferences: options.cssRefs,
@@ -512,6 +514,8 @@ async function main() {
       targets,
       restoration,
       error: failure,
+      viewerPath,
+      openWarning,
     };
     await fs.writeFile(path.join(outputDir, "run.json"), `${JSON.stringify(runData, null, 2)}\n`, "utf8");
     const indexPath = await writeRunIndex({
@@ -540,12 +544,16 @@ async function main() {
         openWarning = `Could not prepare the relocated HTML viewer: ${error.message}`;
       }
     }
+    runData.viewerPath = viewerPath;
+    runData.openWarning = openWarning;
+    await fs.writeFile(path.join(outputDir, "run.json"), `${JSON.stringify(runData, null, 2)}\n`, "utf8");
+    if (viewerPath && path.dirname(viewerPath) !== outputDir) {
+      await fs.writeFile(path.join(path.dirname(viewerPath), "run.json"), `${JSON.stringify(runData, null, 2)}\n`, "utf8");
+    }
     if (openWarning) console.error(openWarning);
   }
 
-  const finalData = JSON.parse(await fs.readFile(path.join(outputDir, "run.json"), "utf8"));
-  if (viewerPath) finalData.viewerPath = viewerPath;
-  if (openWarning) finalData.openWarning = openWarning;
+  const finalData = runData ?? JSON.parse(await fs.readFile(path.join(outputDir, "run.json"), "utf8"));
   if (failure || restoration.error) {
     console.error(JSON.stringify({ ...finalData, outputDir }, null, 2));
     process.exitCode = 1;

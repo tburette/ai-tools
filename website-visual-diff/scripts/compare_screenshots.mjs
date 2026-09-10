@@ -434,7 +434,7 @@ export async function compareDirectories(options) {
     generatedAt: new Date().toISOString(),
     before: { directory: beforeInfo.directory, report: beforeInfo.reportPath },
     after: { directory: afterInfo.directory, report: afterInfo.reportPath },
-    options: { fuzz: options.fuzz, relocateViewer: options.relocateViewer },
+    options: { fuzz: options.fuzz },
     missingBefore,
     missingAfter,
     pairs,
