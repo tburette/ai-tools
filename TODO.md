@@ -86,3 +86,7 @@
   editor, report if there is an issue retrieving the gutenberg data, and take
   the snapshot, all in a single script call. This would make using the skill way
   easier
+
+## website-visual-diff
+
+- The visual comparison produces noisy diffs when a change shifts content vertically: every pixel below the shift is reported as changed even when the same content is only displaced. This makes it difficult to identify the actual visual differences and the location of the layout shift.
