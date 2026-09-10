@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { prepareBrowserViewer } from "./browser_viewer.mjs";
+import { ensureEmptyDirectory } from "./output_directory.mjs";
 import { resolveCssReference } from "./resolve_css.mjs";
 
 function usage(message) {
@@ -332,7 +333,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = `${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`;
   const outputDir = options.outputDir ?? path.join(os.tmpdir(), "website-visual-diff", token);
-  await fs.mkdir(outputDir, { recursive: true });
+  await ensureEmptyDirectory(outputDir, "Artifact directory");
   const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const webInspectorDir = options.webInspectorDir
     ?? process.env.WEB_INSPECTOR_SKILL_DIR

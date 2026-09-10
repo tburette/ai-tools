@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { prepareBrowserViewer } from "./browser_viewer.mjs";
+import { ensureEmptyDirectory } from "./output_directory.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
@@ -400,7 +401,7 @@ export async function compareDirectories(options) {
   if (outputDir === beforeInfo.directory || outputDir === afterInfo.directory) {
     throw new Error("--output-dir must be different from both screenshot directories");
   }
-  await fs.mkdir(outputDir, { recursive: true });
+  await ensureEmptyDirectory(outputDir, "Comparison directory");
 
   const names = [...beforeInfo.files.keys()]
     .filter((name) => afterInfo.files.has(name))
