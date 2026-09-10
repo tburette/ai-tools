@@ -1,0 +1,4 @@
+interface:
+  display_name: "Website Visual Diff"
+  short_description: "Compare rendered pages before and after changes"
+  default_prompt: "Use $website-visual-diff to compare rendered pages before and after a reversible site change."
