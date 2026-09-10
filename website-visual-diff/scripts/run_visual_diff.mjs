@@ -10,6 +10,11 @@ import { prepareBrowserViewer } from "./browser_viewer.mjs";
 import { ensureEmptyDirectory } from "./output_directory.mjs";
 import { resolveCssReference } from "./resolve_css.mjs";
 
+const DEFAULT_VIEWPORTS = [
+  { width: 1440, height: 1100 },
+  { width: 390, height: 844 },
+];
+
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
   console.error(`Usage:
@@ -21,10 +26,11 @@ Options:
   --css-ref <reference>  Cursor reference copied from copy-file-ref (repeatable)
   --css-file <path>      CSS file to temporarily edit
   --range <start:end>    One-based inclusive line range to comment out (repeatable)
-  --viewport <WxH>       Viewport to capture (repeatable; default: 1440x1100)
+  --viewport <WxH>       Viewport to capture (repeatable; default: 1440x1100 and 390x844)
   --device <name>        Playwright device profile passed to Web Inspector
   --browser <name>       chromium or firefox (default: chromium)
-  --full-page            Capture each page's full scrollable height
+  --full-page            Capture each page's full scrollable height (default)
+  --no-full-page         Capture only the viewport instead of the full page
   --action <json>         Interaction action passed to both captures (repeatable)
   --wait-until <event>   load, domcontentloaded, or networkidle (default: networkidle)
   --wait-ms <ms>         Extra wait after navigation/actions (default: 300)
@@ -77,7 +83,7 @@ function parseArgs(argv) {
     viewports: [],
     device: null,
     browser: "chromium",
-    fullPage: false,
+    fullPage: true,
     actions: [],
     waitUntil: "networkidle",
     waitMs: 300,
@@ -108,6 +114,7 @@ function parseArgs(argv) {
     }
     const key = arg.slice(2);
     if (key === "full-page") options.fullPage = true;
+    else if (key === "no-full-page") options.fullPage = false;
     else if (key === "ignore-https-errors") options.ignoreHttpsErrors = true;
     else if (key === "no-local-map") options.localMap = false;
     else if (key === "full-text") options.fullText = true;
@@ -153,7 +160,7 @@ function parseArgs(argv) {
   }
   if (!options.cssRefs.length && !options.cssFile) usage("Provide --css-ref or --css-file");
   if (!options.cssRefs.length && !options.ranges.length) usage("Provide at least one --range with --css-file");
-  if (!options.viewports.length) options.viewports = [{ width: 1440, height: 1100 }];
+  if (!options.viewports.length) options.viewports = DEFAULT_VIEWPORTS.map((viewport) => ({ ...viewport }));
   if (!["chromium", "firefox"].includes(options.browser)) {
     usage(`Unknown browser "${options.browser}"; expected chromium or firefox`);
   }

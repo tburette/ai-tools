@@ -7,6 +7,8 @@ description: Compare before-and-after rendered versions of websites with cache-i
 
 Use this skill when the question is “what changed visually between these rendered versions?” Capture the same URL(s), viewport(s), browser/device settings, and interaction state on both sides, then inspect the generated comparison and browser reports.
 
+Unless the request specifies otherwise, use the runner's standard responsive matrix: 1440×1100 and 390×844, both with full-page capture. The runner applies these defaults; pass `--viewport` and `--no-full-page` when the comparison needs a different capture shape.
+
 For local `.test` or `localhost` URLs, Chromium is the preferred capture browser because Web Inspector can apply its host mapping with Chromium launch arguments. Firefox relies on operating-system name resolution and does not apply that mapping; use Firefox only when the hostname already resolves outside Chromium. The project permission profile in `.codex/config.toml` is intended to allow the local WordPress host when it is active. Do not conclude that WordPress is offline from a sandbox-local DNS or connection failure alone.
 
 ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
