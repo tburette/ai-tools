@@ -34,7 +34,6 @@ Options:
   --no-local-map         Do not map localhost/*.test to 127.0.0.1
   --full-text            Keep full DOM text in Web Inspector reports
   --fail-on-errors       Make captures fail on browser/request/action errors
-  --open                 Open the aggregate HTML viewer when a graphical session is available
   --help                 Show this help
 `);
   process.exit(message ? 2 : 0);
@@ -86,7 +85,6 @@ function parseArgs(argv) {
     localMap: true,
     fullText: false,
     failOnErrors: false,
-    open: false,
   };
   const valueOptions = new Set([
     "url", "css-ref", "css-file", "range", "viewport", "device", "browser", "action",
@@ -108,7 +106,6 @@ function parseArgs(argv) {
     else if (key === "no-local-map") options.localMap = false;
     else if (key === "full-text") options.fullText = true;
     else if (key === "fail-on-errors") options.failOnErrors = true;
-    else if (key === "open") options.open = true;
     else if (valueOptions.has(key)) {
       const value = argv[index + 1];
       if (value == null || value.startsWith("--")) usage(`Missing value for ${arg}`);
@@ -290,8 +287,8 @@ async function restoreCss({ commentScript, statePath }) {
 }
 
 async function openViewer(filePath) {
-  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return "No graphical session detected; open the HTML viewer manually.";
-  const result = await runCommand("xdg-open", [filePath]);
+  const absolutePath = path.resolve(filePath);
+  const result = await runCommand("open", [absolutePath]);
   if (result.error || result.code !== 0) {
     return `Could not open the HTML viewer automatically: ${result.error?.message || result.stderr.trim() || `exit ${result.code}`}`;
   }
@@ -470,13 +467,8 @@ async function main() {
       error: failure,
       openWarning: null,
     });
-    if (options.open) {
-      openWarning = await openViewer(indexPath);
-      if (openWarning) {
-        runData.openWarning = openWarning;
-        await fs.writeFile(path.join(outputDir, "run.json"), `${JSON.stringify(runData, null, 2)}\n`, "utf8");
-      }
-    }
+    openWarning = await openViewer(indexPath);
+    if (openWarning) console.error(openWarning);
   }
 
   const finalData = JSON.parse(await fs.readFile(path.join(outputDir, "run.json"), "utf8"));

@@ -105,6 +105,12 @@ try {
     'if (process.env.WVD_CAPTURE_LOG) await fs.appendFile(process.env.WVD_CAPTURE_LOG, JSON.stringify({ url, profile, phase }) + "\\n");',
   ].join("\n");
   await fs.writeFile(path.join(fakeInspectorDir, "scripts", "capture_page.mjs"), fakeCaptureScript, "utf8");
+  const fakeBin = path.join(root, "bin");
+  await fs.mkdir(fakeBin);
+  const fakeOpenPath = path.join(fakeBin, "open");
+  const openLog = path.join(root, "open-log.txt");
+  await fs.writeFile(fakeOpenPath, "#!/bin/sh\nif [ ! -f \"$1\" ] || [ ! -f \"$(dirname \"$1\")/run.json\" ]; then exit 2; fi\nprintf '%s\\n' \"$1\" > \"$WVD_OPEN_LOG\"\n", "utf8");
+  await fs.chmod(fakeOpenPath, 0o755);
   const runnerOutput = path.join(root, "runner-output");
   const captureLog = path.join(root, "capture-log.jsonl");
   await runNode(path.join(scriptsDir, "run_visual_diff.mjs"), [
@@ -113,7 +119,7 @@ try {
     "--web-inspector-dir", fakeInspectorDir,
     "--output-dir", runnerOutput,
     "--viewport", "32x32",
-  ], { env: { ...process.env, WVD_CAPTURE_LOG: captureLog } });
+  ], { env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, WVD_CAPTURE_LOG: captureLog, WVD_OPEN_LOG: openLog } });
   const runData = JSON.parse(await fs.readFile(path.join(runnerOutput, "run.json"), "utf8"));
   assert.equal(runData.status, "complete");
   assert.deepEqual(runData.ranges, ["4:9"]);
@@ -123,6 +129,7 @@ try {
   const outputEntries = await fs.readdir(runnerOutput);
   assert.equal(outputEntries.some((entry) => entry.startsWith(".css-state-")), false);
   assert.equal(await fs.access(path.join(runnerOutput, "comparison", "01-example.test", "index.html")).then(() => true).catch(() => false), true);
+  assert.equal((await fs.readFile(openLog, "utf8")).trim(), path.join(runnerOutput, "index.html"));
   const captureRecords = (await fs.readFile(captureLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(captureRecords.length, 2);
   assert.notEqual(captureRecords[0].url, captureRecords[1].url);

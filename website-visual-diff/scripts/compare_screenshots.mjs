@@ -371,7 +371,7 @@ async function maybeOpen(filePath) {
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
     return "No graphical session detected; open the HTML viewer manually.";
   }
-  const result = await runCommand("xdg-open", [filePath]);
+  const result = await runCommand("open", [path.resolve(filePath)]);
   if (result.error || result.code !== 0) {
     return `Could not open the HTML viewer automatically: ${result.error?.message || result.stderr.trim() || `exit ${result.code}`}`;
   }

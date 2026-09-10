@@ -33,8 +33,7 @@ node scripts/run_visual_diff.mjs \
   --viewport 1440x1100 \
   --viewport 390x844 \
   --full-page \
-  --output-dir /tmp/lpu-theme-css-diff \
-  --open
+  --output-dir /tmp/lpu-theme-css-diff
 ```
 
 Repeat `--css-ref` for multiple rules in the same CSS file. The runner reports the resolved one-based line ranges before recording them in `run.json` and the aggregate HTML viewer. If the reference is ambiguous, move the cursor to a unique line or include the selector context; never guess a rule.
@@ -50,11 +49,10 @@ node scripts/run_visual_diff.mjs \
   --viewport 1440x1100 \
   --viewport 390x844 \
   --full-page \
-  --output-dir /tmp/lpu-theme-css-diff \
-  --open
+  --output-dir /tmp/lpu-theme-css-diff
 ```
 
-The runner uses a browser with different profiles for each phse and a `visual_diff_cache_bust` query value for each phase. This is deliberate to avoid being served from the browser cache. The two captures are sequential, never concurrent, and use the same capture settings.
+After comparison HTML, JSON reports, and CSS restoration are complete, the runner automatically opens the aggregate viewer with `open <absolute-path-to-index.html>`. If opening fails, it reports a warning while preserving the completed artifacts. The runner uses a browser with different profiles for each phase and a `visual_diff_cache_bust` query value for each phase. This is deliberate to avoid being served from the browser cache. The two captures are sequential, never concurrent, and use the same capture settings.
 
 The CSS file is restored even when the changed capture or comparison fails. file and line number (or range) based `--css-ref` rules are replaced by a CSS comment sentinel rather than wrapped in comment, so existing comments inside the rule remain valid. If restoration fails because the file no longer matches the helper's expected modified content, stop and report the state-file path; never overwrite an intervening edit automatically.
 
@@ -72,7 +70,7 @@ node scripts/compare_screenshots.mjs \
 
 The comparator pairs the primary screenshots recorded in each `report.json` by filename. If reports are absent, it pairs PNGs by basename. It pads images to a common canvas when page heights differ, generates an ImageMagick pixel-difference image and a three-panel side-by-side image when `compare`/`montage` are available, and always writes an HTML viewer. Pixel differences are evidence of changed pixels, not an explanation of the cause; inspect the rendered images and both reports.
 
-`--open` opens the HTML viewer with `xdg-open` when a graphical session is available. In a headless session, use the printed `comparison/index.html` path or inspect the PNGs directly. Generated captures and browser state belong in `/tmp` by default and should not be committed.
+For standalone comparisons, `--open` opens the HTML viewer with `open` when a graphical session is available. In a headless session, use the printed `comparison/index.html` path or inspect the PNGs directly. Generated captures and browser state belong in `/tmp` by default and should not be committed.
 
 ## Required checks
 
