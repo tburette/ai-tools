@@ -1,19 +1,19 @@
 ---
 name: website-visual-diff
-description: Compare before-and-after rendered versions of local or authorized websites with cache-isolated screenshots, pixel diffs, and reversible CSS experiments. Use for visual regression checks after a web change, not for comparing source files alone.
+description: Compare before-and-after rendered versions of websites with cache-isolated screenshots, pixel diffs. Can compare CSS changes. Use for visual regression checks after a web change, not for comparing source files alone.
 ---
 
 # Website Visual Diff
 
 Use this skill when the question is “what changed visually between these two rendered versions?” Capture the same URL(s), viewport(s), browser/device settings, and interaction state on both sides, then inspect the generated comparison and browser reports.
 
-It supports Codex and OpenCode skill discovery. It requires Node.js and the sibling `web-inspector` skill; the WordPress editor workflow additionally requires `wordpress-inspector`. ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
+It requires the sibling `web-inspector` skill; the WordPress editor workflow additionally requires `wordpress-inspector`. ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
 
 The primary workflow is a reversible CSS experiment. `scripts/run_visual_diff.mjs` captures the original page, comments out one or more explicitly selected line ranges in a CSS file, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path. It invokes the sibling `web-inspector` runner rather than reimplementing browser capture.
 
 ## CSS experiment
 
-Only make a source change that the user has requested or clearly authorized. First verify that the target URL is the intended local or authorized site, that the relevant server is already running, and that the CSS file is the source actually served by the site. Do not reset, start, or stop a WordPress environment unless the project instructions or user explicitly authorizes that operation.
+Only make a source change that the user has requested or authorized. The relevant server must already be running, and the CSS file is the source actually served by the site. Do not reset, start, or stop a WordPress environment unless the project instructions or user explicitly authorizes that operation.
 
 Use one-based, inclusive line ranges. A range must contain a complete CSS rule or declaration and must not contain an existing `/* ... */` comment. Repeat `--range` for multiple independent ranges; inspect the file with `rg -n` first rather than guessing line numbers.
 
