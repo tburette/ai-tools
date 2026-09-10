@@ -40,6 +40,7 @@ try {
   const stateFile = path.join(root, "css-state.json");
   const originalCss = ":root {\n  --brand: red;\n}\n\n.card {\n  display: block;\n}\n";
   await fs.writeFile(cssFile, originalCss, "utf8");
+  const originalInode = (await fs.stat(cssFile)).ino;
 
   await runNode(path.join(scriptsDir, "comment_css.mjs"), [
     "disable", "--file", cssFile, "--range", "1:3", "--range", "5:7", "--state", stateFile,
@@ -48,10 +49,12 @@ try {
   assert.notEqual(changedCss, originalCss);
   assert.match(changedCss, /website-visual-diff: disabled 1:3/);
   assert.match(changedCss, /website-visual-diff: disabled 5:7/);
+  assert.equal((await fs.stat(cssFile)).ino, originalInode);
   assert.equal(await fs.access(stateFile).then(() => true).catch(() => false), true);
 
   await runNode(path.join(scriptsDir, "comment_css.mjs"), ["restore", "--state", stateFile]);
   assert.equal(await fs.readFile(cssFile, "utf8"), originalCss);
+  assert.equal((await fs.stat(cssFile)).ino, originalInode);
   assert.equal(await fs.access(stateFile).then(() => true).catch(() => false), false);
 
   const escapedComma = String.fromCharCode(92);
@@ -162,6 +165,28 @@ try {
     assert.equal(await fs.access(path.join(comparisonDir, "index.html")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "diff.png")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "side-by-side.png")).then(() => true).catch(() => false), true);
+
+    const scientificBeforeDir = path.join(root, "scientific-before");
+    const scientificAfterDir = path.join(root, "scientific-after");
+    const scientificComparisonDir = path.join(root, "scientific-comparison");
+    await fs.mkdir(scientificBeforeDir);
+    await fs.mkdir(scientificAfterDir);
+    const scientificBeforeImage = path.join(scientificBeforeDir, "large.png");
+    const scientificAfterImage = path.join(scientificAfterDir, "large.png");
+    result = await run("convert", ["-size", "1024x1024", "xc:#ffffff", scientificBeforeImage]);
+    assert.equal(result.code, 0, result.stderr);
+    result = await run("convert", ["-size", "1024x1024", "xc:#000000", scientificAfterImage]);
+    assert.equal(result.code, 0, result.stderr);
+    const scientificReport = (screenshot) => ({ viewports: [{ screenshot, viewport: { width: 1024, height: 1024 } }] });
+    await fs.writeFile(path.join(scientificBeforeDir, "report.json"), `${JSON.stringify(scientificReport(scientificBeforeImage))}\n`, "utf8");
+    await fs.writeFile(path.join(scientificAfterDir, "report.json"), `${JSON.stringify(scientificReport(scientificAfterImage))}\n`, "utf8");
+
+    await runNode(path.join(scriptsDir, "compare_screenshots.mjs"), [
+      "--before", scientificBeforeDir, "--after", scientificAfterDir, "--output-dir", scientificComparisonDir,
+    ]);
+    const scientificSummary = JSON.parse(await fs.readFile(path.join(scientificComparisonDir, "visual-diff.json"), "utf8"));
+    assert.ok(scientificSummary.pairs[0].changedPixels > 1_000_000);
+    assert.match(scientificSummary.pairs[0].metricOutput, /e[+-]\d+/i);
   } else {
     console.log("ImageMagick not available; skipped PNG metric smoke check.");
   }

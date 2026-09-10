@@ -197,7 +197,7 @@ async function createPixelDiff(beforePath, afterPath, diffPath, fuzz) {
   if (result.error || (result.code !== 0 && result.code !== 1)) {
     throw new Error(result.error?.message || result.stderr.trim() || "compare failed");
   }
-  const metricMatch = /^\s*([0-9]+(?:\.[0-9]+)?)/m.exec(result.stderr);
+  const metricMatch = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/m.exec(result.stderr);
   return {
     changedPixels: metricMatch ? Number(metricMatch[1]) : null,
     metricOutput: result.stderr.trim(),

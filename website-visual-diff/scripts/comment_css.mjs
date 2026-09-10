@@ -88,6 +88,28 @@ async function writeAtomically(filePath, contents) {
   }
 }
 
+/**
+ * Rewrite an existing file without replacing its inode.
+ *
+ * Docker Desktop bind mounts can retain the old inode when a host file is
+ * replaced with rename(). CSS experiments must therefore update the mounted
+ * file in place so the running web container observes the change.
+ *
+ * @param {string} filePath
+ * @param {string} contents
+ * @returns {Promise<void>}
+ */
+async function writeInPlace(filePath, contents) {
+  const handle = await fs.open(filePath, "r+");
+  try {
+    await handle.writeFile(contents, "utf8");
+    await handle.truncate(Buffer.byteLength(contents, "utf8"));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 async function ensureRegularFile(filePath) {
   const stats = await fs.lstat(filePath);
   if (stats.isSymbolicLink()) throw new Error(`Refusing to edit symlinked CSS file: ${filePath}`);
@@ -192,15 +214,17 @@ async function disableSpans(options) {
 
   await fs.mkdir(path.dirname(statePath), { recursive: true });
   try {
-    await writeAtomically(filePath, modifiedText);
-    try {
-      await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
-    } catch (stateError) {
-      await writeAtomically(filePath, originalText).catch(() => {});
-      throw new Error(`CSS was restored after the state file failed to write: ${stateError.message}`, { cause: stateError });
-    }
+    await writeInPlace(filePath, modifiedText);
+    await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
   } catch (error) {
-    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}`, { cause: error });
+    let rollbackError = null;
+    try {
+      await writeInPlace(filePath, originalText);
+    } catch (error) {
+      rollbackError = error;
+    }
+    const rollbackMessage = rollbackError ? `; CSS rollback failed: ${rollbackError.message}` : "";
+    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}${rollbackMessage}`, { cause: error });
   }
 
   console.log(JSON.stringify({
@@ -270,15 +294,17 @@ async function disable(options) {
 
   await fs.mkdir(path.dirname(statePath), { recursive: true });
   try {
-    await writeAtomically(filePath, modifiedText);
-    try {
-      await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
-    } catch (stateError) {
-      await writeAtomically(filePath, originalText).catch(() => {});
-      throw new Error(`CSS was restored after the state file failed to write: ${stateError.message}`, { cause: stateError });
-    }
+    await writeInPlace(filePath, modifiedText);
+    await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
   } catch (error) {
-    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}`, { cause: error });
+    let rollbackError = null;
+    try {
+      await writeInPlace(filePath, originalText);
+    } catch (error) {
+      rollbackError = error;
+    }
+    const rollbackMessage = rollbackError ? `; CSS rollback failed: ${rollbackError.message}` : "";
+    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}${rollbackMessage}`, { cause: error });
   }
 
   console.log(JSON.stringify({
@@ -310,7 +336,7 @@ async function restore(options) {
       + `(expected ${state.modifiedSha256}, found ${currentSha256})`,
     );
   }
-  await writeAtomically(filePath, state.originalText);
+  await writeInPlace(filePath, state.originalText);
   await fs.rm(statePath, { force: true });
   console.log(JSON.stringify({
     action: "restored",
