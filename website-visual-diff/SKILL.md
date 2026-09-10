@@ -7,9 +7,9 @@ description: Compare before-and-after rendered versions of websites with cache-i
 
 Use this skill when the question is “what changed visually between these two rendered versions?” Capture the same URL(s), viewport(s), browser/device settings, and interaction state on both sides, then inspect the generated comparison and browser reports.
 
-It requires the sibling `web-inspector` skill; the WordPress editor workflow additionally requires `wordpress-inspector`. ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
+ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
 
-The primary workflow is a reversible CSS experiment. `scripts/run_visual_diff.mjs` captures the original page, temporarily disables one or more CSS rules, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path. It invokes the sibling `web-inspector` runner rather than reimplementing browser capture.
+The primary workflow is a reversible CSS experiment. `scripts/run_visual_diff.mjs` captures the original page, temporarily disables one or more CSS rules, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path.
 
 ## CSS experiment
 

@@ -10,6 +10,8 @@ ln -s /home/tburette/dev/ai/ai-tools/website-visual-diff ~/.config/opencode/skil
 
 Do not replace an existing directory or link silently.
 
+The skill `web-inspector` must be installed as a sibling of this skill.
+
 ## Validation
 
 From the skill source directory, run:
