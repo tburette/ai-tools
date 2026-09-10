@@ -35,6 +35,7 @@ async function runNode(script, args, options = {}) {
 }
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "website-visual-diff-smoke-"));
+const relocatedViewerDirectories = [];
 try {
   const cssFile = path.join(root, "theme.css");
   const stateFile = path.join(root, "css-state.json");
@@ -73,11 +74,14 @@ try {
     ".same-line { color: blue; }",
   ].join("\n") + "\n";
   await fs.writeFile(cssFile, complexCss, "utf8");
-  const cssReference = `${cssFile}:5 (.beta) [symbol-range=4-6]`;
+  const cssReference = `${cssFile}:5 (.beta) [context-lines=4-6]`;
   const resolved = await resolveCssReference(cssReference);
   assert.equal(resolved.rule.startLine, 4);
   assert.equal(resolved.rule.endLine, 9);
   assert.equal(resolved.rule.prelude.includes(".beta" + escapedComma + ",part"), true);
+  const legacyResolved = await resolveCssReference(`${cssFile}:5 (.beta) [symbol-range=4-6]`);
+  assert.equal(legacyResolved.rule.startOffset, resolved.rule.startOffset);
+  assert.equal(legacyResolved.rule.endOffset, resolved.rule.endOffset);
 
   const spanStateFile = path.join(root, "span-state.json");
   await runNode(path.join(scriptsDir, "comment_css.mjs"), [
@@ -112,9 +116,10 @@ try {
   await fs.mkdir(fakeBin);
   const fakeOpenPath = path.join(fakeBin, "open");
   const openLog = path.join(root, "open-log.txt");
-  await fs.writeFile(fakeOpenPath, "#!/bin/sh\nif [ ! -f \"$1\" ] || [ ! -f \"$(dirname \"$1\")/run.json\" ]; then exit 2; fi\nprintf '%s\\n' \"$1\" > \"$WVD_OPEN_LOG\"\n", "utf8");
+  await fs.writeFile(fakeOpenPath, "#!/bin/sh\nif [ ! -f \"$1\" ] || { [ ! -f \"$(dirname \"$1\")/run.json\" ] && [ ! -f \"$(dirname \"$1\")/visual-diff.json\" ]; }; then exit 2; fi\nprintf '%s\\n' \"$1\" > \"$WVD_OPEN_LOG\"\n", "utf8");
   await fs.chmod(fakeOpenPath, 0o755);
   const runnerOutput = path.join(root, "runner-output");
+  const viewerRoot = path.join(root, "browser-viewer-root");
   const captureLog = path.join(root, "capture-log.jsonl");
   await runNode(path.join(scriptsDir, "run_visual_diff.mjs"), [
     "http://example.test/",
@@ -122,7 +127,13 @@ try {
     "--web-inspector-dir", fakeInspectorDir,
     "--output-dir", runnerOutput,
     "--viewport", "32x32",
-  ], { env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, WVD_CAPTURE_LOG: captureLog, WVD_OPEN_LOG: openLog } });
+  ], { env: {
+    ...process.env,
+    PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    WVD_CAPTURE_LOG: captureLog,
+    WVD_OPEN_LOG: openLog,
+    WEBSITE_VISUAL_DIFF_VIEWER_ROOT: viewerRoot,
+  } });
   const runData = JSON.parse(await fs.readFile(path.join(runnerOutput, "run.json"), "utf8"));
   assert.equal(runData.status, "complete");
   assert.deepEqual(runData.ranges, ["4:9"]);
@@ -132,7 +143,13 @@ try {
   const outputEntries = await fs.readdir(runnerOutput);
   assert.equal(outputEntries.some((entry) => entry.startsWith(".css-state-")), false);
   assert.equal(await fs.access(path.join(runnerOutput, "comparison", "01-example.test", "index.html")).then(() => true).catch(() => false), true);
-  assert.equal((await fs.readFile(openLog, "utf8")).trim(), path.join(runnerOutput, "index.html"));
+  const openedPath = (await fs.readFile(openLog, "utf8")).trim();
+  assert.notEqual(openedPath, path.join(runnerOutput, "index.html"));
+  assert.ok(openedPath.startsWith(viewerRoot + path.sep));
+  assert.equal(await fs.access(openedPath).then(() => true).catch(() => false), true);
+  assert.equal(await fs.access(path.join(path.dirname(openedPath), "run.json")).then(() => true).catch(() => false), true);
+  assert.equal(await fs.access(path.join(path.dirname(openedPath), "comparison", "01-example.test", "index.html")).then(() => true).catch(() => false), true);
+  relocatedViewerDirectories.push(path.dirname(openedPath));
   const captureRecords = (await fs.readFile(captureLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(captureRecords.length, 2);
   assert.notEqual(captureRecords[0].url, captureRecords[1].url);
@@ -166,6 +183,34 @@ try {
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "diff.png")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "side-by-side.png")).then(() => true).catch(() => false), true);
 
+    const openedComparisonDir = path.join(root, "opened-comparison");
+    await runNode(path.join(scriptsDir, "compare_screenshots.mjs"), [
+      "--before", beforeDir, "--after", afterDir, "--output-dir", openedComparisonDir, "--open",
+    ], { env: {
+      ...process.env,
+      DISPLAY: ":99",
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      WVD_OPEN_LOG: openLog,
+      WEBSITE_VISUAL_DIFF_VIEWER_ROOT: viewerRoot,
+    } });
+    const openedComparisonPath = (await fs.readFile(openLog, "utf8")).trim();
+    assert.ok(openedComparisonPath.startsWith(viewerRoot + path.sep));
+    assert.equal(await fs.access(openedComparisonPath).then(() => true).catch(() => false), true);
+    assert.equal(await fs.access(path.join(path.dirname(openedComparisonPath), "visual-diff.json")).then(() => true).catch(() => false), true);
+    relocatedViewerDirectories.push(path.dirname(openedComparisonPath));
+
+    const directComparisonDir = path.join(root, "direct-comparison");
+    await runNode(path.join(scriptsDir, "compare_screenshots.mjs"), [
+      "--before", beforeDir, "--after", afterDir, "--output-dir", directComparisonDir,
+      "--open", "--no-viewer-relocation",
+    ], { env: {
+      ...process.env,
+      DISPLAY: ":99",
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      WVD_OPEN_LOG: openLog,
+    } });
+    assert.equal((await fs.readFile(openLog, "utf8")).trim(), path.join(directComparisonDir, "index.html"));
+
     const scientificBeforeDir = path.join(root, "scientific-before");
     const scientificAfterDir = path.join(root, "scientific-after");
     const scientificComparisonDir = path.join(root, "scientific-comparison");
@@ -193,5 +238,6 @@ try {
 
   console.log(JSON.stringify({ status: "passed", root, imageToolsAvailable }, null, 2));
 } finally {
+  await Promise.all(relocatedViewerDirectories.map((directory) => fs.rm(directory, { recursive: true, force: true })));
   await fs.rm(root, { recursive: true, force: true });
 }

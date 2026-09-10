@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { prepareBrowserViewer } from "./browser_viewer.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
@@ -12,7 +13,8 @@ function usage(message) {
 
 Options:
   --fuzz <percent>  Ignore pixel differences within an ImageMagick fuzz threshold (default: 0%)
-  --open            Open the generated HTML viewer when a graphical session is available
+  --open            Open the generated HTML viewer with open
+  --no-viewer-relocation  Open the requested output path without copying it to Downloads
   --help            Show this help
 `);
   process.exit(message ? 2 : 0);
@@ -37,6 +39,7 @@ function parseArgs(argv) {
     ),
     fuzz: "0%",
     open: false,
+    relocateViewer: true,
   };
   const valueOptions = new Set(["before", "after", "output-dir", "fuzz"]);
   for (let index = 0; index < argv.length; index += 1) {
@@ -46,6 +49,10 @@ function parseArgs(argv) {
     const key = arg.slice(2);
     if (key === "open") {
       options.open = true;
+      continue;
+    }
+    if (key === "no-viewer-relocation") {
+      options.relocateViewer = false;
       continue;
     }
     if (!valueOptions.has(key)) usage(`Unknown option "${arg}"`);
@@ -367,11 +374,19 @@ function renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options
 `;
 }
 
-async function maybeOpen(filePath) {
-  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
-    return "No graphical session detected; open the HTML viewer manually.";
+async function maybeOpen(filePath, token, relocate) {
+  let viewer;
+  try {
+    viewer = await prepareBrowserViewer({
+      sourceDirectory: path.dirname(filePath),
+      indexPath: filePath,
+      token,
+      relocate,
+    });
+  } catch (error) {
+    return `Could not prepare the relocated HTML viewer: ${error.message}`;
   }
-  const result = await runCommand("open", [path.resolve(filePath)]);
+  const result = await runCommand("open", [viewer.indexPath]);
   if (result.error || result.code !== 0) {
     return `Could not open the HTML viewer automatically: ${result.error?.message || result.stderr.trim() || `exit ${result.code}`}`;
   }
@@ -418,7 +433,7 @@ export async function compareDirectories(options) {
     generatedAt: new Date().toISOString(),
     before: { directory: beforeInfo.directory, report: beforeInfo.reportPath },
     after: { directory: afterInfo.directory, report: afterInfo.reportPath },
-    options: { fuzz: options.fuzz },
+    options: { fuzz: options.fuzz, relocateViewer: options.relocateViewer },
     missingBefore,
     missingAfter,
     pairs,
@@ -435,7 +450,7 @@ export async function compareDirectories(options) {
   await fs.writeFile(htmlPath, renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options }), "utf8");
 
   if (options.open) {
-    const openWarning = await maybeOpen(htmlPath);
+    const openWarning = await maybeOpen(htmlPath, `comparison-${Date.now()}-${process.pid}`, options.relocateViewer);
     if (openWarning) summary.warnings.push(openWarning);
     await fs.writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   }

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { prepareBrowserViewer } from "./browser_viewer.mjs";
 import { resolveCssReference } from "./resolve_css.mjs";
 
 function usage(message) {
@@ -29,6 +30,7 @@ Options:
   --timeout <ms>         Browser navigation/action timeout (default: 30000)
   --fuzz <percent>       ImageMagick pixel-diff fuzz threshold (default: 0%)
   --output-dir <path>    Artifact directory (default: a new directory under /tmp)
+  --no-viewer-relocation Do not copy the viewer to the Downloads directory
   --web-inspector-dir <path> Companion web-inspector skill directory
   --ignore-https-errors  Ignore HTTPS certificate errors
   --no-local-map         Do not map localhost/*.test to 127.0.0.1
@@ -80,6 +82,7 @@ function parseArgs(argv) {
     timeout: 30000,
     fuzz: "0%",
     outputDir: null,
+    relocateViewer: true,
     webInspectorDir: null,
     ignoreHttpsErrors: false,
     localMap: true,
@@ -106,6 +109,7 @@ function parseArgs(argv) {
     else if (key === "no-local-map") options.localMap = false;
     else if (key === "full-text") options.fullText = true;
     else if (key === "fail-on-errors") options.failOnErrors = true;
+    else if (key === "no-viewer-relocation") options.relocateViewer = false;
     else if (valueOptions.has(key)) {
       const value = argv[index + 1];
       if (value == null || value.startsWith("--")) usage(`Missing value for ${arg}`);
@@ -374,12 +378,14 @@ async function main() {
     waitMs: options.waitMs,
     timeout: options.timeout,
     fuzz: options.fuzz,
+    relocateViewer: options.relocateViewer,
     actions: options.actions.map((action) => JSON.parse(action)),
     cacheBustParameter: "visual_diff_cache_bust",
   };
   let failure = null;
   let restoration = { attempted: false, restored: false, error: null };
   let openWarning = null;
+  let viewerPath = null;
   let cssDisabled = false;
 
   try {
@@ -467,11 +473,24 @@ async function main() {
       error: failure,
       openWarning: null,
     });
-    openWarning = await openViewer(indexPath);
+    try {
+      const viewer = await prepareBrowserViewer({
+        sourceDirectory: outputDir,
+        indexPath,
+        token,
+        relocate: options.relocateViewer,
+      });
+      viewerPath = viewer.indexPath;
+      openWarning = await openViewer(viewer.indexPath);
+    } catch (error) {
+      openWarning = `Could not prepare the relocated HTML viewer: ${error.message}`;
+    }
     if (openWarning) console.error(openWarning);
   }
 
   const finalData = JSON.parse(await fs.readFile(path.join(outputDir, "run.json"), "utf8"));
+  if (viewerPath) finalData.viewerPath = viewerPath;
+  if (openWarning) finalData.openWarning = openWarning;
   if (failure || restoration.error) {
     console.error(JSON.stringify({ ...finalData, outputDir }, null, 2));
     process.exitCode = 1;

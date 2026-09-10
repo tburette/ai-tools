@@ -17,10 +17,10 @@ function parsePositiveInteger(value, label) {
   return number;
 }
 
-function parseSymbolRange(start, end) {
-  const startLine = parsePositiveInteger(start, "symbol range start");
-  const endLine = parsePositiveInteger(end, "symbol range end");
-  if (endLine < startLine) throw new Error("symbol range end must not precede its start");
+function parseContextLines(start, end) {
+  const startLine = parsePositiveInteger(start, "context line range start");
+  const endLine = parsePositiveInteger(end, "context line range end");
+  if (endLine < startLine) throw new Error("context line range end must not precede its start");
   return { startLine, endLine };
 }
 
@@ -30,16 +30,18 @@ function parseSymbolRange(start, end) {
  * Supported forms:
  *   path/to/file.css:26
  *   path/to/file.css:26 (.selector)
- *   path/to/file.css:26 (.selector) [symbol-range=20-28]
+ *   path/to/file.css:26 (.selector) [context-lines=20-28]
+ *
+ * The former symbol-range spelling is also accepted for older references.
  */
 export function parseCssReference(reference) {
   let value = String(reference ?? "").trim();
   if (!value) throw new Error("CSS reference cannot be empty");
 
-  let symbolRange = null;
-  const suffix = /\s+\[symbol-range=(\d+)-(\d+)\]\s*$/i.exec(value);
+  let contextLines = null;
+  const suffix = /\s+\[(?:context-lines|symbol-range)=(\d+)-(\d+)\]\s*$/i.exec(value);
   if (suffix) {
-    symbolRange = parseSymbolRange(suffix[1], suffix[2]);
+    contextLines = parseContextLines(suffix[1], suffix[2]);
     value = value.slice(0, suffix.index).trimEnd();
   }
 
@@ -57,7 +59,7 @@ export function parseCssReference(reference) {
     file: filePart,
     line: parsePositiveInteger(match[2], "CSS reference line"),
     hint: match[3]?.trim() || null,
-    symbolRange,
+    contextLines,
   };
 }
 
@@ -218,13 +220,13 @@ function containsLine(block, line, starts, text) {
   return Boolean(bounds && block.startOffset < bounds.end && block.endOffset > bounds.start);
 }
 
-function containsSymbolRange(block, symbolRange, starts, text) {
-  if (!symbolRange) return false;
-  const startBounds = lineBounds(starts, text, symbolRange.startLine);
-  const endBounds = lineBounds(starts, text, symbolRange.endLine);
+function containsContextLines(block, contextLines, starts, text) {
+  if (!contextLines) return false;
+  const startBounds = lineBounds(starts, text, contextLines.startLine);
+  const endBounds = lineBounds(starts, text, contextLines.endLine);
   if (!startBounds || !endBounds) return false;
   const blockRange = blockLines(block, starts);
-  return blockRange.startLine <= symbolRange.startLine && blockRange.endLine >= symbolRange.endLine;
+  return blockRange.startLine <= contextLines.startLine && blockRange.endLine >= contextLines.endLine;
 }
 
 function selectorMatchesHint(block, hint) {
@@ -239,7 +241,7 @@ function describeCandidate(block, starts) {
   return `${lines.startLine}:${lines.endLine}${preview ? ` (${preview})` : ""}`;
 }
 
-function chooseRule({ blocks, text, line, hint, symbolRange, starts }) {
+function chooseRule({ blocks, text, line, hint, contextLines, starts }) {
   let candidates = blocks
     .filter((block) => !block.isAtRule)
     .filter((block) => containsLine(block, line, starts, text));
@@ -251,8 +253,8 @@ function chooseRule({ blocks, text, line, hint, symbolRange, starts }) {
   const hinted = candidates.filter((block) => selectorMatchesHint(block, hint));
   if (hinted.length) candidates = hinted;
 
-  const symbolMatched = candidates.filter((block) => containsSymbolRange(block, symbolRange, starts, text));
-  if (symbolMatched.length) candidates = symbolMatched;
+  const contextMatched = candidates.filter((block) => containsContextLines(block, contextLines, starts, text));
+  if (contextMatched.length) candidates = contextMatched;
 
   candidates.sort((left, right) => {
     const leftSize = left.endOffset - left.startOffset;
@@ -301,7 +303,7 @@ export async function resolveCssReference(reference, { cwd = process.cwd() } = {
     text,
     line: parsed.line,
     hint: parsed.hint,
-    symbolRange: parsed.symbolRange,
+    contextLines: parsed.contextLines,
     starts,
   });
   const lines = blockLines(block, starts);
@@ -310,7 +312,7 @@ export async function resolveCssReference(reference, { cwd = process.cwd() } = {
     file: filePath,
     cursorLine: parsed.line,
     hint: parsed.hint,
-    symbolRange: parsed.symbolRange,
+    contextLines: parsed.contextLines,
     rule: {
       startOffset: block.startOffset,
       endOffset: block.endOffset,
