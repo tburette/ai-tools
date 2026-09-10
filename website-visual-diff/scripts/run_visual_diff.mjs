@@ -242,6 +242,33 @@ async function readReport(captureDir, label) {
       throw new Error(`${label} report is missing a screenshot for viewport ${JSON.stringify(item.viewport)}`);
     }
   }
+
+  const navigationFailures = report.viewports.filter((item) => (
+    item.navigationError
+    || item.finalUrl === "about:blank"
+    || (item.status == null && item.finalUrl)
+  ));
+  if (navigationFailures.length) {
+    const details = navigationFailures.map((item) => {
+      const failedRequests = Array.isArray(item.failedRequests) && item.failedRequests.length
+        ? `; failed requests: ${item.failedRequests.map(({ url, error }) => `${url} (${error})`).join(", ")}`
+        : "";
+      return `${JSON.stringify(item.viewport)}: status ${item.status ?? "none"}, final URL ${item.finalUrl || "unknown"}${item.navigationError ? `, navigation error: ${item.navigationError}` : ""}${failedRequests}`;
+    }).join("\n");
+    let hint = "";
+    if (report.options?.browser === "firefox" && report.options?.localMapRequested && !report.options?.localMapApplied) {
+      let hostname = null;
+      try {
+        hostname = new URL(report.url).hostname;
+      } catch {
+        // The capture script already reported the malformed URL.
+      }
+      if (hostname === "localhost" || hostname?.endsWith(".test")) {
+        hint = " Firefox does not apply Chromium's host mapping; ensure this hostname resolves through the operating system or use Chromium.";
+      }
+    }
+    throw new Error(`${label} could not load the page; refusing to compare an incomplete capture.\n${details}${hint}`);
+  }
   return report;
 }
 
