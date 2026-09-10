@@ -56,6 +56,8 @@ After comparison HTML, JSON reports, and CSS restoration are complete, the runne
 
 The CSS file is restored even when the changed capture or comparison fails. file and line number (or range) based `--css-ref` rules are replaced by a CSS comment sentinel rather than wrapped in comment, so existing comments inside the rule remain valid. If restoration fails because the file no longer matches the helper's expected modified content, stop and report the state-file path; never overwrite an intervening edit automatically.
 
+If a capture fails before writing `report.json`, read the runner's complete error: it includes both child stderr and stdout. An error containing `sandbox_host_linux`, `sandbox_host`, or `Operation not permitted` is a browser-process permission failure before navigation, not a CSS or WordPress failure. Retry the capture with elevated browser execution. Do not infer that the local site is offline from that error.
+
 ## Compare existing captures
 
 When screen captures must be made by another tool or has already been made, use:

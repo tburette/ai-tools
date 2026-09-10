@@ -204,7 +204,13 @@ function runCommand(command, args, { cwd, env } = {}) {
 async function runNodeCommand(label, script, args, options = {}) {
   const result = await runCommand(process.execPath, [script, ...args], options);
   if (result.error || result.code !== 0) {
-    const details = result.error?.message || result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
+    const streams = [];
+    if (result.stderr.trim()) streams.push(`stderr:\n${result.stderr.trim()}`);
+    if (result.stdout.trim()) streams.push(`stdout:\n${result.stdout.trim()}`);
+    let details = result.error?.message || streams.join("\n") || `exit ${result.code}`;
+    if (/sandbox_host_linux|sandbox_host|operation not permitted/i.test(`${result.stderr}\n${result.stdout}`)) {
+      details += "\nThe browser was blocked while starting by the execution sandbox; retry this capture with elevated browser permission. This occurs before page navigation.";
+    }
     throw new Error(`${label} failed: ${details}`);
   }
   return result;
