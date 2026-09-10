@@ -6,14 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { resolveCssReference } from "./resolve_css.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
   console.error(`Usage:
+  node scripts/run_visual_diff.mjs <url> [--url <url> ...] --css-ref <path:line (selector)> [options]
   node scripts/run_visual_diff.mjs <url> [--url <url> ...] --css-file <path> --range <start:end> [options]
 
 Options:
   --url <url>             Add another page to the same before/after experiment
+  --css-ref <reference>  Cursor reference copied from copy-file-ref (repeatable)
   --css-file <path>      CSS file to temporarily edit
   --range <start:end>    One-based inclusive line range to comment out (repeatable)
   --viewport <WxH>       Viewport to capture (repeatable; default: 1440x1100)
@@ -65,6 +68,7 @@ function parseFuzz(value) {
 function parseArgs(argv) {
   const options = {
     urls: [],
+    cssRefs: [],
     cssFile: null,
     ranges: [],
     viewports: [],
@@ -85,7 +89,7 @@ function parseArgs(argv) {
     open: false,
   };
   const valueOptions = new Set([
-    "url", "css-file", "range", "viewport", "device", "browser", "action",
+    "url", "css-ref", "css-file", "range", "viewport", "device", "browser", "action",
     "wait-until", "wait-ms", "timeout", "fuzz", "output-dir", "web-inspector-dir",
   ]);
   const positionalUrls = [];
@@ -110,6 +114,7 @@ function parseArgs(argv) {
       if (value == null || value.startsWith("--")) usage(`Missing value for ${arg}`);
       index += 1;
       if (key === "url") options.urls.push(value);
+      else if (key === "css-ref") options.cssRefs.push(value);
       else if (key === "css-file") options.cssFile = value;
       else if (key === "range") options.ranges.push(parseRange(value));
       else if (key === "viewport") {
@@ -138,8 +143,11 @@ function parseArgs(argv) {
 
   options.urls = [...positionalUrls, ...options.urls];
   if (!options.urls.length) usage("Provide at least one URL");
-  if (!options.cssFile) usage("--css-file is required for the reversible CSS workflow");
-  if (!options.ranges.length) usage("Provide at least one --range");
+  if (options.cssRefs.length && (options.cssFile || options.ranges.length)) {
+    usage("Use --css-ref by itself, or use --css-file with one or more --range options");
+  }
+  if (!options.cssRefs.length && !options.cssFile) usage("Provide --css-ref or --css-file");
+  if (!options.cssRefs.length && !options.ranges.length) usage("Provide at least one --range with --css-file");
   if (!options.viewports.length) options.viewports = [{ width: 1440, height: 1100 }];
   if (!["chromium", "firefox"].includes(options.browser)) {
     usage(`Unknown browser "${options.browser}"; expected chromium or firefox`);
@@ -290,7 +298,7 @@ async function openViewer(filePath) {
   return null;
 }
 
-async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, restoration, error, openWarning }) {
+async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cssReferences, resolvedRules, restoration, error, openWarning }) {
   const targetItems = targets.map((target) => {
     const comparisonLink = target.comparisonDir
       ? `<a href="${relativeUrl(outputDir, path.join(target.comparisonDir, "index.html"))}">open comparison</a>`
@@ -302,11 +310,17 @@ async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, re
     ? `<div class="errors"><h2>Problems</h2><ul>${errors.map((item) => `<li>${htmlEscape(item)}</li>`).join("")}</ul></div>`
     : "";
   const status = error || restoration.error ? "failed" : "complete";
+  const cssReferenceHtml = cssReferences.length
+    ? `<p><strong>CSS references:</strong> ${cssReferences.map((reference) => htmlEscape(reference)).join("<br>")}</p>`
+    : "";
+  const resolvedRulesHtml = resolvedRules.length
+    ? `<p><strong>Resolved rules:</strong> ${resolvedRules.map((rule) => htmlEscape(`${rule.startLine}:${rule.endLine} (${rule.prelude})`)).join("<br>")}</p>`
+    : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Website visual diff run</title>
 <style>body{font-family:system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;line-height:1.5}.errors{border:1px solid #dc2626;padding:1rem;border-radius:.5rem}.meta{background:#f3f4f6;padding:1rem;border-radius:.5rem}a{color:#0369a1}</style></head>
 <body><h1>Website visual diff run</h1><p><strong>Status:</strong> ${status}</p>
-<div class="meta"><p><strong>CSS file:</strong> ${htmlEscape(cssFile)}</p><p><strong>Ranges:</strong> ${htmlEscape(ranges.join(", "))}</p><p><strong>Viewports:</strong> ${htmlEscape(settings.viewports.map(({ width, height }) => `${width}x${height}`).join(", "))}</p><p><strong>Restored:</strong> ${restoration.restored ? "yes" : "no"}</p></div>
+<div class="meta"><p><strong>CSS file:</strong> ${htmlEscape(cssFile)}</p>${cssReferenceHtml}${resolvedRulesHtml}<p><strong>Ranges:</strong> ${htmlEscape(ranges.join(", "))}</p><p><strong>Viewports:</strong> ${htmlEscape(settings.viewports.map(({ width, height }) => `${width}x${height}`).join(", "))}</p><p><strong>Restored:</strong> ${restoration.restored ? "yes" : "no"}</p></div>
 ${errorHtml}<h2>Targets</h2><ul>${targetItems}</ul></body></html>\n`;
   const htmlPath = path.join(outputDir, "index.html");
   await fs.writeFile(htmlPath, html, "utf8");
@@ -328,7 +342,22 @@ async function main() {
     ? path.resolve(process.env.WEB_INSPECTOR_STATE_DIR)
     : path.join(os.tmpdir(), `website-visual-diff-browser-${token}`);
   const removeStateRoot = !process.env.WEB_INSPECTOR_STATE_DIR;
-  const cssFile = path.resolve(options.cssFile);
+  let cssFile = options.cssFile ? path.resolve(options.cssFile) : null;
+  const resolvedCss = [];
+  if (options.cssRefs.length) {
+    for (const reference of options.cssRefs) {
+      const resolved = await resolveCssReference(reference, { cwd: process.cwd() });
+      if (cssFile && cssFile !== resolved.file) {
+        throw new Error(`CSS references must target one file; found ${cssFile} and ${resolved.file}`);
+      }
+      cssFile = resolved.file;
+      resolvedCss.push(resolved);
+    }
+  }
+  const cssSpans = resolvedCss.map(({ rule }) => ({ start: rule.startOffset, end: rule.endOffset }));
+  const resolvedRanges = resolvedCss.length
+    ? resolvedCss.map(({ rule }) => `${rule.startLine}:${rule.endLine}`)
+    : options.ranges;
   const targets = options.urls.map((originalUrl, index) => ({
     originalUrl,
     name: targetDirectoryName(originalUrl, index),
@@ -372,7 +401,11 @@ async function main() {
     }
 
     const disableArgs = ["disable", "--file", cssFile, "--state", statePath];
-    for (const range of options.ranges) disableArgs.push("--range", range);
+    if (cssSpans.length) {
+      for (const span of cssSpans) disableArgs.push("--span", `${span.start}:${span.end}`);
+    } else {
+      for (const range of options.ranges) disableArgs.push("--range", range);
+    }
     await runNodeCommand("CSS deactivation", commentScript, disableArgs);
     cssDisabled = true;
 
@@ -416,7 +449,9 @@ async function main() {
       status: failure || restoration.error ? "failed" : "complete",
       generatedAt: new Date().toISOString(),
       cssFile,
-      ranges: options.ranges,
+      ranges: resolvedRanges,
+      cssReferences: options.cssRefs,
+      resolvedRules: resolvedCss.map(({ rule }) => rule),
       settings,
       targets,
       restoration,
@@ -428,7 +463,9 @@ async function main() {
       targets,
       settings,
       cssFile,
-      ranges: options.ranges,
+      ranges: resolvedRanges,
+      cssReferences: options.cssRefs,
+      resolvedRules: resolvedCss.map(({ rule }) => rule),
       restoration,
       error: failure,
       openWarning: null,

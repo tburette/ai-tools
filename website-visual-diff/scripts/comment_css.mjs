@@ -8,10 +8,12 @@ function usage(message) {
   if (message) console.error(`Error: ${message}\n`);
   console.error(`Usage:
   node scripts/comment_css.mjs disable --file <path> --range <start:end> [--range <start:end> ...] --state <path>
+  node scripts/comment_css.mjs disable --file <path> --span <start:end> [--span <start:end> ...] --state <path>
   node scripts/comment_css.mjs restore --state <path>
 
-Ranges are one-based and inclusive. The helper refuses ranges containing an
-existing CSS block comment, because CSS comments cannot be nested.
+Ranges are one-based and inclusive. Spans are zero-based character offsets
+with an exclusive end. Spans are replaced by CSS comment sentinels, so the
+selected rule may contain existing CSS comments.
 `);
   process.exit(message ? 2 : 0);
 }
@@ -29,6 +31,15 @@ function parseRange(value) {
   return { start, end };
 }
 
+function parseSpan(value) {
+  const match = /^(\d+):(\d+)$/.exec(String(value ?? ""));
+  if (!match) throw new Error(`Invalid span "${value}"; expected start:end`);
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (end <= start) throw new Error(`Invalid span "${value}"; end must be greater than start`);
+  return { start, end };
+}
+
 function parseArgs(argv) {
   const command = argv[0];
   if (command === "--help" || command === "-h") usage();
@@ -36,8 +47,8 @@ function parseArgs(argv) {
     usage(`Expected "disable" or "restore", got "${command ?? ""}"`);
   }
 
-  const options = { command, file: null, ranges: [], state: null };
-  const valueOptions = new Set(["file", "range", "state"]);
+  const options = { command, file: null, ranges: [], spans: [], state: null };
+  const valueOptions = new Set(["file", "range", "span", "state"]);
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") usage();
@@ -49,13 +60,15 @@ function parseArgs(argv) {
     index += 1;
     if (key === "file") options.file = path.resolve(value);
     else if (key === "range") options.ranges.push(parseRange(value));
+    else if (key === "span") options.spans.push(parseSpan(value));
     else if (key === "state") options.state = path.resolve(value);
   }
 
   if (!options.state) usage("--state is required");
   if (command === "disable") {
     if (!options.file) usage("disable requires --file");
-    if (!options.ranges.length) usage("disable requires at least one --range");
+    if (options.ranges.length && options.spans.length) usage("disable accepts either --range or --span, not both");
+    if (!options.ranges.length && !options.spans.length) usage("disable requires at least one --range or --span");
   }
   return options;
 }
@@ -93,6 +106,112 @@ function validateRanges(ranges, lineCount) {
     }
   }
   return sorted;
+}
+
+function lineStarts(text) {
+  const starts = [0];
+  for (let offset = 0; offset < text.length; offset += 1) {
+    if (text[offset] === "\n") starts.push(offset + 1);
+  }
+  return starts;
+}
+
+function lineForOffset(starts, offset) {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (starts[middle] <= offset) low = middle + 1;
+    else high = middle - 1;
+  }
+  return high + 1;
+}
+
+function validateSpans(spans, textLength) {
+  const sorted = [...spans].sort((left, right) => left.start - right.start);
+  for (let index = 0; index < sorted.length; index += 1) {
+    const span = sorted[index];
+    if (span.start < 0 || span.end > textLength) {
+      throw new Error(`CSS span ${span.start}:${span.end} is outside the file (${textLength} characters)`);
+    }
+    if (index > 0 && span.start < sorted[index - 1].end) {
+      throw new Error(`CSS spans overlap at ${span.start}:${span.end}`);
+    }
+  }
+  return sorted;
+}
+
+async function disableSpans(options) {
+  const filePath = path.resolve(options.file);
+  const statePath = path.resolve(options.state);
+  await ensureRegularFile(filePath);
+  const originalText = await fs.readFile(filePath, "utf8");
+  if (originalText.includes("/* website-visual-diff: disabled")) {
+    throw new Error(`The CSS file already contains a website-visual-diff marker: ${filePath}`);
+  }
+
+  const starts = lineStarts(originalText);
+  const spans = validateSpans(
+    options.spans.map((span) => ({ ...span, kind: "span", label: `span ${span.start}:${span.end}` })),
+    originalText.length,
+  );
+  const replacements = [];
+  for (const span of spans) {
+    const selectedText = originalText.slice(span.start, span.end);
+    if (!selectedText.trim()) {
+      throw new Error(`CSS span ${span.label} contains no CSS text`);
+    }
+    replacements.push({
+      span,
+      replacement: `/* website-visual-diff: disabled ${span.label} */`,
+    });
+  }
+
+  let modifiedText = originalText;
+  for (let index = replacements.length - 1; index >= 0; index -= 1) {
+    const { span, replacement } = replacements[index];
+    modifiedText = modifiedText.slice(0, span.start) + replacement + modifiedText.slice(span.end);
+  }
+  const state = {
+    version: 2,
+    file: filePath,
+    originalSha256: sha256(originalText),
+    modifiedSha256: sha256(modifiedText),
+    originalText,
+    spans: spans.map(({ start, end, kind, label }) => ({
+      start,
+      end,
+      kind,
+      label,
+      startLine: lineForOffset(starts, start),
+      endLine: lineForOffset(starts, Math.max(start, end - 1)),
+    })),
+    ranges: [],
+    createdAt: new Date().toISOString(),
+  };
+
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
+  try {
+    await writeAtomically(filePath, modifiedText);
+    try {
+      await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    } catch (stateError) {
+      await writeAtomically(filePath, originalText).catch(() => {});
+      throw new Error(`CSS was restored after the state file failed to write: ${stateError.message}`, { cause: stateError });
+    }
+  } catch (error) {
+    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}`, { cause: error });
+  }
+
+  console.log(JSON.stringify({
+    action: "disabled",
+    file: filePath,
+    state: statePath,
+    ranges: [],
+    spans: state.spans,
+    originalSha256: state.originalSha256,
+    modifiedSha256: state.modifiedSha256,
+  }, null, 2));
 }
 
 async function disable(options) {
@@ -175,7 +294,7 @@ async function disable(options) {
 async function restore(options) {
   const statePath = path.resolve(options.state);
   const state = JSON.parse(await fs.readFile(statePath, "utf8"));
-  if (state?.version !== 1 || typeof state.file !== "string" || typeof state.originalText !== "string") {
+  if (![1, 2].includes(state?.version) || typeof state.file !== "string" || typeof state.originalText !== "string") {
     throw new Error(`Unsupported or incomplete CSS state file: ${statePath}`);
   }
   const filePath = path.resolve(options.file ?? state.file);
@@ -203,7 +322,8 @@ async function restore(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.command === "disable") await disable(options);
+  if (options.command === "disable" && options.spans.length) await disableSpans(options);
+  else if (options.command === "disable") await disable(options);
   else await restore(options);
 }
 
