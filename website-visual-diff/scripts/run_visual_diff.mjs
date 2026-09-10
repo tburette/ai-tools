@@ -32,6 +32,7 @@ Options:
   --fuzz <percent>       ImageMagick pixel-diff fuzz threshold (default: 0%)
   --output-dir <path>    Artifact directory (default: a new directory under /tmp)
   --no-viewer-relocation Do not copy the viewer to the Downloads directory
+  --no-open               Do not open the aggregate HTML viewer automatically
   --web-inspector-dir <path> Companion web-inspector skill directory
   --ignore-https-errors  Ignore HTTPS certificate errors
   --no-local-map         Do not map localhost/*.test to 127.0.0.1
@@ -84,6 +85,7 @@ function parseArgs(argv) {
     fuzz: "0%",
     outputDir: null,
     relocateViewer: true,
+    openViewer: true,
     webInspectorDir: null,
     ignoreHttpsErrors: false,
     localMap: true,
@@ -111,6 +113,7 @@ function parseArgs(argv) {
     else if (key === "full-text") options.fullText = true;
     else if (key === "fail-on-errors") options.failOnErrors = true;
     else if (key === "no-viewer-relocation") options.relocateViewer = false;
+    else if (key === "no-open") options.openViewer = false;
     else if (valueOptions.has(key)) {
       const value = argv[index + 1];
       if (value == null || value.startsWith("--")) usage(`Missing value for ${arg}`);
@@ -413,6 +416,7 @@ async function main() {
     timeout: options.timeout,
     fuzz: options.fuzz,
     relocateViewer: options.relocateViewer,
+    openViewer: options.openViewer,
     actions: options.actions.map((action) => JSON.parse(action)),
     cacheBustParameter: "visual_diff_cache_bust",
   };
@@ -507,17 +511,19 @@ async function main() {
       error: failure,
       openWarning: null,
     });
-    try {
-      const viewer = await prepareBrowserViewer({
-        sourceDirectory: outputDir,
-        indexPath,
-        token,
-        relocate: options.relocateViewer,
-      });
-      viewerPath = viewer.indexPath;
-      openWarning = await openViewer(viewer.indexPath);
-    } catch (error) {
-      openWarning = `Could not prepare the relocated HTML viewer: ${error.message}`;
+    if (options.openViewer) {
+      try {
+        const viewer = await prepareBrowserViewer({
+          sourceDirectory: outputDir,
+          indexPath,
+          token,
+          relocate: options.relocateViewer,
+        });
+        viewerPath = viewer.indexPath;
+        openWarning = await openViewer(viewer.indexPath);
+      } catch (error) {
+        openWarning = `Could not prepare the relocated HTML viewer: ${error.message}`;
+      }
     }
     if (openWarning) console.error(openWarning);
   }

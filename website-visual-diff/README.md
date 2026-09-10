@@ -23,6 +23,6 @@ node scripts/smoke_test.mjs
 
 The smoke test uses temporary files under `/tmp` and removes them. Browser smoke testing belongs to the companion `web-inspector` skill; this skill's end-to-end runner can be tested with an injected capture adapter when Chromium is not appropriate for a unit test.
 
-The generated viewer opens automatically for the CSS experiment runner. By default, the complete report bundle is copied to `~/Downloads/website-visual-diff/` before it is opened; the original artifacts remain in the requested output directory. Pass `--no-viewer-relocation` to open the requested output path directly. A symlink is not sufficient for Firefox Snap confinement because it would still resolve to the inaccessible original directory.
+The generated viewer opens automatically for the CSS experiment runner. By default, the complete report bundle is copied to `~/Downloads/website-visual-diff/` before it is opened; the original artifacts remain in the requested output directory. Pass `--no-viewer-relocation` to open the requested output path directly, or `--no-open` to skip launching a viewer. A symlink is not sufficient for Firefox Snap confinement because it would still resolve to the inaccessible original directory.
 
 CSS experiments rewrite the target stylesheet in place to preserve its inode. This keeps changes visible through Docker Desktop bind mounts; the saved state file is still written atomically and the stylesheet is restored after the run.
