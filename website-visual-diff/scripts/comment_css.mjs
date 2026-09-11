@@ -12,8 +12,9 @@ function usage(message) {
   node scripts/comment_css.mjs restore --state <path>
 
 Ranges are one-based and inclusive. Spans are zero-based character offsets
-with an exclusive end. Spans are replaced by CSS comment sentinels, so the
-selected rule may contain existing CSS comments.
+with an exclusive end. Selections are disabled with CSS comments. If a
+selection already contains a CSS block comment, it is replaced by a marker
+comment to avoid nesting comments.
 `);
   process.exit(message ? 2 : 0);
 }
@@ -163,82 +164,15 @@ function validateSpans(spans, textLength) {
   return sorted;
 }
 
-async function disableSpans(options) {
-  const filePath = path.resolve(options.file);
-  const statePath = path.resolve(options.state);
-  await ensureRegularFile(filePath);
-  const originalText = await fs.readFile(filePath, "utf8");
-  if (originalText.includes("/* website-visual-diff: disabled")) {
-    throw new Error(`The CSS file already contains a website-visual-diff marker: ${filePath}`);
+function disabledComment(selectedText, label, newline) {
+  const marker = `website-visual-diff: disabled ${label}`;
+  if (selectedText.includes("/*") || selectedText.includes("*/")) {
+    return `/* ${marker} */`;
   }
-
-  const starts = lineStarts(originalText);
-  const spans = validateSpans(
-    options.spans.map((span) => ({ ...span, kind: "span", label: `span ${span.start}:${span.end}` })),
-    originalText.length,
-  );
-  const replacements = [];
-  for (const span of spans) {
-    const selectedText = originalText.slice(span.start, span.end);
-    if (!selectedText.trim()) {
-      throw new Error(`CSS span ${span.label} contains no CSS text`);
-    }
-    replacements.push({
-      span,
-      replacement: `/* website-visual-diff: disabled ${span.label} */`,
-    });
-  }
-
-  let modifiedText = originalText;
-  for (let index = replacements.length - 1; index >= 0; index -= 1) {
-    const { span, replacement } = replacements[index];
-    modifiedText = modifiedText.slice(0, span.start) + replacement + modifiedText.slice(span.end);
-  }
-  const state = {
-    version: 2,
-    file: filePath,
-    originalSha256: sha256(originalText),
-    modifiedSha256: sha256(modifiedText),
-    originalText,
-    spans: spans.map(({ start, end, kind, label }) => ({
-      start,
-      end,
-      kind,
-      label,
-      startLine: lineForOffset(starts, start),
-      endLine: lineForOffset(starts, Math.max(start, end - 1)),
-    })),
-    ranges: [],
-    createdAt: new Date().toISOString(),
-  };
-
-  await fs.mkdir(path.dirname(statePath), { recursive: true });
-  try {
-    await writeInPlace(filePath, modifiedText);
-    await writeAtomically(statePath, `${JSON.stringify(state, null, 2)}\n`);
-  } catch (error) {
-    let rollbackError = null;
-    try {
-      await writeInPlace(filePath, originalText);
-    } catch (error) {
-      rollbackError = error;
-    }
-    const rollbackMessage = rollbackError ? `; CSS rollback failed: ${rollbackError.message}` : "";
-    throw new Error(`Could not deactivate CSS in ${filePath}: ${error.message}${rollbackMessage}`, { cause: error });
-  }
-
-  console.log(JSON.stringify({
-    action: "disabled",
-    file: filePath,
-    state: statePath,
-    ranges: [],
-    spans: state.spans,
-    originalSha256: state.originalSha256,
-    modifiedSha256: state.modifiedSha256,
-  }, null, 2));
+  return [`/* ${marker}`, selectedText, "*/"].join(newline);
 }
 
-async function disable(options) {
+async function disableSelections(options) {
   const filePath = path.resolve(options.file);
   const statePath = path.resolve(options.state);
   await ensureRegularFile(filePath);
@@ -248,46 +182,66 @@ async function disable(options) {
   }
 
   const newline = originalText.includes("\r\n") ? "\r\n" : "\n";
-  const lines = originalText.split(newline);
-  const lineCount = originalText.endsWith(newline) ? lines.length - 1 : lines.length;
-  const ranges = validateRanges(options.ranges, lineCount);
-  const replacements = [];
-
-  for (const range of ranges) {
-    const selectedLines = lines.slice(range.start - 1, range.end);
-    const selectedText = selectedLines.join(newline);
-    if (!selectedText.trim()) {
-      throw new Error(`Range ${range.start}:${range.end} contains no CSS text`);
-    }
-    if (selectedText.includes("/*") || selectedText.includes("*/")) {
-      throw new Error(
-        `Range ${range.start}:${range.end} contains an existing CSS block comment; select a narrower range`,
-      );
-    }
-    const replacement = [
-      `/* website-visual-diff: disabled ${range.start}:${range.end} */`,
-      selectedText,
-      "/* website-visual-diff: end */",
-    ].join(newline);
-    replacements.push({ range, replacement });
-  }
-
-  const modifiedLines = [...lines];
-  for (let index = replacements.length - 1; index >= 0; index -= 1) {
-    const { range, replacement } = replacements[index];
-    modifiedLines.splice(
-      range.start - 1,
-      range.end - range.start + 1,
-      ...replacement.split(newline),
+  const starts = lineStarts(originalText);
+  let ranges = [];
+  let selections;
+  if (options.spans.length) {
+    const spans = validateSpans(
+      options.spans.map((span) => ({ ...span, kind: "span", label: `span ${span.start}:${span.end}` })),
+      originalText.length,
     );
+    selections = spans.map((span) => ({
+      ...span,
+      startLine: lineForOffset(starts, span.start),
+      endLine: lineForOffset(starts, Math.max(span.start, span.end - 1)),
+    }));
+  } else {
+    const lines = originalText.split(newline);
+    const lineCount = originalText.endsWith(newline) ? lines.length - 1 : lines.length;
+    ranges = validateRanges(options.ranges, lineCount);
+    selections = ranges.map((range) => ({
+      start: starts[range.start - 1],
+      end: range.end < starts.length ? starts[range.end] : originalText.length,
+      kind: "range",
+      label: `${range.start}:${range.end}`,
+      startLine: range.start,
+      endLine: range.end,
+    }));
   }
-  const modifiedText = modifiedLines.join(newline);
+
+  const replacements = [];
+  for (const selection of selections) {
+    const selectedText = originalText.slice(selection.start, selection.end);
+    if (!selectedText.trim()) {
+      throw new Error(`CSS ${selection.kind} ${selection.label.replace(`${selection.kind} `, "")} contains no CSS text`);
+    }
+    replacements.push({
+      selection,
+      replacement: disabledComment(selectedText, selection.label, newline),
+    });
+  }
+
+  let modifiedText = originalText;
+  for (let index = replacements.length - 1; index >= 0; index -= 1) {
+    const { selection, replacement } = replacements[index];
+    modifiedText = modifiedText.slice(0, selection.start)
+      + replacement
+      + modifiedText.slice(selection.end);
+  }
   const state = {
-    version: 1,
+    version: 2,
     file: filePath,
     originalSha256: sha256(originalText),
     modifiedSha256: sha256(modifiedText),
     originalText,
+    spans: selections.map(({ start, end, kind, label, startLine, endLine }) => ({
+      start,
+      end,
+      kind,
+      label,
+      startLine,
+      endLine,
+    })),
     ranges,
     createdAt: new Date().toISOString(),
   };
@@ -312,6 +266,7 @@ async function disable(options) {
     file: filePath,
     state: statePath,
     ranges,
+    ...(options.spans.length ? { spans: state.spans } : {}),
     originalSha256: state.originalSha256,
     modifiedSha256: state.modifiedSha256,
   }, null, 2));
@@ -348,8 +303,7 @@ async function restore(options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.command === "disable" && options.spans.length) await disableSpans(options);
-  else if (options.command === "disable") await disable(options);
+  if (options.command === "disable") await disableSelections(options);
   else await restore(options);
 }
 

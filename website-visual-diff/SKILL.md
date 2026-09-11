@@ -57,7 +57,7 @@ An explicitly supplied output directory must be new or empty; use a fresh direct
 
 The runner uses a browser with different profiles for each phase and a `visual_diff_cache_bust` query value for each phase. This is done to help avoid being served from the browser cache, it shouldn't be needed as the tool should use two different browser profiles with their own caches.
 
-The CSS file is restored even when the changed capture or comparison fails. file and line number (or range) based `--css-ref` rules are replaced by a CSS comment sentinel rather than wrapped in comment, so existing comments inside the rule remain valid. If restoration fails because the file no longer matches the helper's expected modified content, stop and report the state-file path; never overwrite an intervening edit automatically.
+The CSS file is restored even when the changed capture or comparison fails. File-and-line references and exact line ranges are routed through the same CSS-rewrite path. Selected source is wrapped in a CSS block comment so it is actually disabled; selections containing an existing block comment use a marker-only CSS comment to avoid nesting comments. If restoration fails because the file no longer matches the helper's expected modified content, stop and report the state-file path; never overwrite an intervening edit automatically.
 
 Each successful before/after capture also gets a readable `capture-summary.txt` next to Web Inspector's `report.json`. The aggregate viewer links to both summaries. The summary covers HTTP status, final URL, navigation errors, console/page errors, failed requests/responses, action failures, document dimensions, and image loading; consult the raw `report.json` for full details.
 
