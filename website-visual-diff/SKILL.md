@@ -7,28 +7,25 @@ description: Compare before-and-after rendered versions of websites with cache-i
 
 Use this skill when the question is “what changed visually between these rendered versions?” Capture the same URL(s), viewport(s), browser/device settings, and interaction state on both sides, then inspect the generated comparison and browser reports.
 
-Unless the request specifies otherwise, use the runner's standard responsive matrix: 1440×1100 and 390×844, both with full-page capture. The runner applies these defaults; pass `--viewport` and `--no-full-page` when the comparison needs a different capture shape.
+The runner uses the two viewports: 1440×1100 and 390×844, both with full-page capture. If it has been requested, you can choose the viewports to use with `--viewport` (can be repeated) and `--no-full-page` to the runner to change those values.
 
-For local `.test` or `localhost` URLs, Chromium is the preferred capture browser because Web Inspector can apply its host mapping with Chromium launch arguments. Firefox relies on operating-system name resolution and does not apply that mapping; use Firefox only when the hostname already resolves outside Chromium. The project permission profile in `.codex/config.toml` is intended to allow the local WordPress host when it is active. Do not conclude that WordPress is offline from a sandbox-local DNS or connection failure alone.
-
-ImageMagick's `identify`, `convert`, `compare`, and `montage` are optional enhancements. Without them, the comparator still writes an HTML side-by-side viewer.
-
-The primary workflow is a reversible CSS experiment. `scripts/run_visual_diff.mjs` captures the original page, temporarily disables one or more CSS rules, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path.
+The primary workflow is a reversible CSS experiment using `scripts/run_visual_diff.mjs`. It captures the original page, temporarily disables one or more CSS rules, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path.
 
 ## CSS experiment
 
-Only make a source change that the user has requested or authorized. The relevant server must already be running, and the CSS file is the source actually served by the site. Do not reset, start, or stop a WordPress environment unless the project instructions or user explicitly authorizes that operation.
+Only make a source change that the user has requested or authorized. Do not try to configure, reset or start what is needed to make the URL work. Report if the URL couldn't be successfully retrieved.
 
-Prefer a file position reference copied from the `copy-file-ref` VS Code extension. It accepts the current format and the extension's optional CSS suffix:
+You can receive CSS rule locaton in the following format: `FILE:LINENO (SELECTOR) [context-lines=FROM-TO]`
+eg.:
 
 ```text
 themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band)
 themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band) [context-lines=20-28]
 ```
 
-The file and line is enough; the selector in parentheses is only a disambiguation hint and may be incomplete for multiline or escaped selectors. The default disables the whole enclosing rule.
+The selector and context-line are optional.The selector in parentheses is only a disambiguation hint and may be incomplete for multiline or escaped selectors. context-lines is the beginning and en of the entire ruleset
 
-Run it without manually calculating the rule's end line:
+Pass it to the runner with `--css-ref`:
 
 ```bash
 node scripts/run_visual_diff.mjs \
@@ -66,7 +63,8 @@ If a capture fails before writing `report.json`, read the runner's complete erro
 
 ## Compare existing captures
 
-When screen captures must be made by another tool or has already been made, use:
+This is an optional alternative way to use this skill.
+When screen captures has already been made, use:
 
 ```bash
 node scripts/compare_screenshots.mjs \
@@ -83,8 +81,6 @@ For standalone comparisons, `--open` invokes `open` for the HTML viewer and appl
 ## Required checks
 
 - Keep the URL, viewport(s), full-page setting, browser/device, wait settings, and actions identical before and after.
-- Read both Web Inspector `report.json` files. Check HTTP status, navigation errors, failed requests, page errors, action failures, image loading, and final document dimensions before attributing a difference to the CSS change.
-- Open every relevant original, changed, diff, and side-by-side PNG. Treat the rendered screenshots as the source of truth; use DOM summaries only as supporting evidence.
-- Report the artifact directory, exact source ranges changed, restoration result, tested viewports/actions, and any checks not performed.
+- You can read both Web Inspector `report.json` files to check HTTP status, navigation errors, failed requests, page errors, action failures, image loading, and final document dimensions before attributing a difference to the CSS change.
+- Report the artifact directory.
 - The run mutates the requested CSS file temporarily and creates screenshots, reports, HTML, and comparison PNGs in the output directory; those artifacts may contain private page content and should stay out of version control unless explicitly requested.
-  For Gutenberg editor or Site Editor canvas comparisons, use `wordpress-inspector` for the editor snapshot and its required browser workflow, then use `compare_screenshots.mjs` for the image comparison. This skill does not replace WordPress editor inspection or accessibility testing.
