@@ -156,6 +156,38 @@ try {
   assert.match(captureRecords[0].url, /visual_diff_cache_bust=/);
   assert.notEqual(captureRecords[0].profile, captureRecords[1].profile);
 
+  const silentFailInspectorDir = path.join(root, "silent-fail-web-inspector");
+  await fs.mkdir(path.join(silentFailInspectorDir, "scripts"), { recursive: true });
+  await fs.writeFile(path.join(silentFailInspectorDir, "scripts", "capture_page.mjs"), "process.exitCode = 1;\n", "utf8");
+  const failedRunnerOutput = path.join(root, "failed-runner-output");
+  const failedRunner = await run(process.execPath, [
+    path.join(scriptsDir, "run_visual_diff.mjs"),
+    "http://example.test/",
+    "--css-ref", cssReference,
+    "--web-inspector-dir", silentFailInspectorDir,
+    "--output-dir", failedRunnerOutput,
+    "--viewport", "32x32",
+    "--no-open",
+  ], { cwd: skillDir });
+  assert.equal(failedRunner.code, 1, failedRunner.stdout || failedRunner.stderr);
+  assert.match(failedRunner.stderr, /\"failureDetails\"/);
+  const failedRunData = JSON.parse(await fs.readFile(path.join(failedRunnerOutput, "run.json"), "utf8"));
+  assert.equal(failedRunData.status, "failed");
+  assert.match(failedRunData.error, /before capture .* failed: exit code 1/);
+  assert.match(failedRunData.error, /command:/);
+  assert.match(failedRunData.error, /diagnostic: .*no stdout or stderr/);
+  assert.equal(failedRunData.failureDetails.type, "child-process");
+  assert.equal(failedRunData.failureDetails.exitCode, 1);
+  assert.equal(failedRunData.failureDetails.signal, null);
+  assert.equal(failedRunData.failureDetails.stdout, "");
+  assert.equal(failedRunData.failureDetails.stderr, "");
+  assert.equal(failedRunData.failureDetails.context.phase, "before");
+  assert.equal(failedRunData.failureDetails.context.url, "http://example.test/");
+  const failedIndex = await fs.readFile(path.join(failedRunnerOutput, "index.html"), "utf8");
+  assert.match(failedIndex, /Structured failure details/);
+  assert.match(failedIndex, /exitCode.*1/);
+  assert.equal(await fs.readFile(cssFile, "utf8"), complexCss);
+
   const imageToolsAvailable = await Promise.all(["convert", "identify", "compare", "montage"].map(commandAvailable));
   if (imageToolsAvailable.every(Boolean)) {
     const beforeDir = path.join(root, "before");
