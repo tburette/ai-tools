@@ -25,8 +25,6 @@ themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band) [context-lines
 
 The selector and context-line are optional.The selector in parentheses is only a disambiguation hint and may be incomplete for multiline or escaped selectors. context-lines is the beginning and en of the entire ruleset.
 
-You must make a backup copy of the css file (in /tmp/) before any operation.
-
 Do not check the status of the git repository (unless asked to).
 
 Pass it to the runner with `--css-ref`:
