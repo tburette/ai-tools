@@ -12,6 +12,33 @@ Do not replace an existing directory or link silently.
 
 The skill `web-inspector` must be installed as a sibling of this skill.
 
+## Local websites and Codex permissions
+
+When capturing a local website, Codex's network permissions must allow the browser to reach the local service. This applies to `localhost`, `127.0.0.1`, and DNS names that resolve to a local service, such as `my-site.test`.
+
+Add or adapt a permission profile in the project's `.codex/config.toml` (the profile must be active for the Codex session):
+
+```toml
+default_permissions = "local-website"
+
+[features]
+network_proxy = true
+
+[permissions.local-website]
+description = "Local website visual testing"
+extends = ":workspace"
+
+[permissions.local-website.network]
+enabled = true
+allow_local_binding = true
+
+[permissions.local-website.network.domains]
+"my-site.test" = "allow"
+"*.my-site.test" = "allow"
+```
+
+`allow_local_binding = true` enables access to local bindings such as `localhost` and `127.0.0.1`. Add each DNS hostname that points to the local service to the `domains` allowlist; add a wildcard when subdomains are needed. Keep the allowlist limited to the development hosts you trust, then start a new Codex session so the configuration is applied.
+
 ## Validation
 
 From the skill source directory, run:
