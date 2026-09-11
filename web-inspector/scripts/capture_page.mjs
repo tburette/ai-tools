@@ -13,6 +13,7 @@ import {
 } from "./lib/profiles.mjs";
 import {
   assertHeadedEnvironment,
+  codexProxyForUrl,
   localLaunchArgs,
   persistentProfileArgs,
   resolveExecutablePath,
@@ -310,12 +311,17 @@ async function main() {
   // Hostname mapping relies on --host-resolver-rules, which only exists in
   // Chromium; Firefox must rely on the operating system's name resolution.
   const localArgs = options.browser === "chromium" ? localLaunchArgs(options.url, options.localMap) : [];
+  const browserProxy = codexProxyForUrl(options.url);
   const launchArgs = [
     ...(options.browser === "chromium" ? ["--no-sandbox"] : []),
     ...(options.profile ? persistentProfileArgs(options.browser) : []),
     ...localArgs,
   ];
-  const launchOptions = { headless: !options.headed, args: launchArgs };
+  const launchOptions = {
+    headless: !options.headed,
+    args: launchArgs,
+    ...(browserProxy ? { proxy: browserProxy } : {}),
+  };
   if (executablePath) launchOptions.executablePath = executablePath;
 
   const { defaultBrowserType: _defaultBrowserType, ...deviceContextOptions } = deviceDescriptor ?? {};
@@ -351,6 +357,7 @@ async function main() {
       waitMs: options.waitMs,
       timeout: options.timeout,
       executablePath,
+      proxyConfigured: Boolean(browserProxy),
       localMapRequested: options.localMap,
       localMapApplied: localArgs.length > 0,
       fullText: options.fullText,

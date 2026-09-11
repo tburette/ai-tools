@@ -88,6 +88,8 @@ If resolution fails, report the error and do not silently install dependencies. 
 
 For `localhost` or `*.test` URLs, the runner maps the hostname to `127.0.0.1` by default (Chromium-only `--host-resolver-rules`; Firefox uses OS resolution). Reports distinguish `localMapRequested` from `localMapApplied`. Disable with `--no-local-map`.
 
+When Codex's managed network proxy is active, the launcher passes it explicitly to Playwright for `.test` hostnames. Playwright does not automatically use Codex's `HTTP_PROXY` environment variables; direct loopback access from the sandbox can otherwise produce `ERR_CONNECTION_REFUSED` even while the host service is running. `localhost` and `127.0.0.1` fixtures remain direct so local smoke-test servers are not routed through the host proxy.
+
 ### Visual regression
 
 Capture the same URL at the same viewport and compare the new screenshot with the supplied baseline. Do not call a page "responsive" from a desktop screenshot alone.

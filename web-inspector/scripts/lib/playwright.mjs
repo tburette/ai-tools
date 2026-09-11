@@ -80,6 +80,22 @@ export function localLaunchArgs(url, enabled) {
   return [];
 }
 
+export function codexProxyForUrl(url, env = process.env) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  // Playwright does not automatically consume Codex's HTTP_PROXY environment
+  // variables. Host-mapped .test URLs therefore need the proxy explicitly,
+  // while localhost/127.0.0.1 fixtures should continue using direct access.
+  if (!parsed.hostname.endsWith(".test") || env.CODEX_NETWORK_PROXY_ACTIVE !== "1") return null;
+  const server = env.BUNDLE_HTTP_PROXY || env.HTTP_PROXY || env.http_proxy;
+  return server ? { server } : null;
+}
+
 export function persistentProfileArgs(browserName) {
   // Chromium normally discards session cookies when a persistent context exits.
   // Keep session state in an explicitly selected persistent profile while still

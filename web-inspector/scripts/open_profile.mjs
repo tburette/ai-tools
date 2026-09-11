@@ -10,6 +10,7 @@ import {
 } from "./lib/profiles.mjs";
 import {
   assertHeadedEnvironment,
+  codexProxyForUrl,
   localLaunchArgs,
   persistentProfileArgs,
   resolveExecutablePath,
@@ -174,9 +175,11 @@ async function main() {
   const chromiumArgs = options.browser === "chromium"
     ? ["--no-sandbox", ...persistentProfileArgs(options.browser), ...localLaunchArgs(cliOptions.url, cliOptions.localMap)]
     : [];
+  const browserProxy = codexProxyForUrl(cliOptions.url);
   const launchOptions = {
     headless: false,
     args: chromiumArgs,
+    ...(browserProxy ? { proxy: browserProxy } : {}),
     ignoreHTTPSErrors: cliOptions.ignoreHttpsErrors,
   };
   if (executablePath) launchOptions.executablePath = executablePath;

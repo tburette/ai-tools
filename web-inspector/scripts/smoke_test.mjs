@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { codexProxyForUrl } from "./lib/playwright.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const captureScript = path.join(scriptDir, "capture_page.mjs");
@@ -81,6 +82,22 @@ const server = await startServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 const browser = process.env.WEB_INSPECTOR_BROWSER ?? "chromium";
+
+const proxyEnvironment = {
+  CODEX_NETWORK_PROXY_ACTIVE: "1",
+  BUNDLE_HTTP_PROXY: "http://127.0.0.1:12345",
+};
+assert.deepEqual(
+  codexProxyForUrl("http://lepaysanurbain.test:8888/", proxyEnvironment),
+  { server: "http://127.0.0.1:12345" },
+);
+assert.equal(codexProxyForUrl("http://localhost:8888/", proxyEnvironment), null);
+assert.equal(codexProxyForUrl("http://127.0.0.1:8888/", proxyEnvironment), null);
+assert.equal(codexProxyForUrl("https://example.com/", proxyEnvironment), null);
+assert.equal(codexProxyForUrl("http://lepaysanurbain.test:8888/", {
+  CODEX_NETWORK_PROXY_ACTIVE: "0",
+  BUNDLE_HTTP_PROXY: "http://127.0.0.1:12345",
+}), null);
 
 try {
   const removedScreenshotPrefixRun = await runCapture(`${baseUrl}/`, [
