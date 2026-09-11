@@ -23,7 +23,11 @@ themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band)
 themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band) [context-lines=20-28]
 ```
 
-The selector and context-line are optional.The selector in parentheses is only a disambiguation hint and may be incomplete for multiline or escaped selectors. context-lines is the beginning and en of the entire ruleset
+The selector and context-line are optional.The selector in parentheses is only a disambiguation hint and may be incomplete for multiline or escaped selectors. context-lines is the beginning and en of the entire ruleset.
+
+You must make a backup copy of the css file (in /tmp/) before any operation.
+
+Do not check the status of the git repository (unless asked to).
 
 Pass it to the runner with `--css-ref`:
 
@@ -53,13 +57,19 @@ node scripts/run_visual_diff.mjs \
   --output-dir /tmp/lpu-theme-css-diff
 ```
 
-After comparison HTML, JSON reports, and CSS restoration are complete, the runner automatically opens the aggregate viewer with `open <absolute-path-to-index.html>`. By default it first copies the complete report bundle to `~/Downloads/website-visual-diff/<run>-<token>/` so Firefox installed as a Snap can read local screenshots and reports. Pass `--no-viewer-relocation` to open the requested output path directly from `/tmp/`, or `--no-open` to skip launching a viewer entirely in a headless/container environment. An explicitly supplied output directory must be new or empty; use a fresh directory such as `--output-dir "$(mktemp -d /tmp/website-visual-diff.XXXXXX)"` so a failed or interrupted run cannot leave stale screenshots looking current. If opening or copying fails, it reports a warning while preserving the completed artifacts. The runner uses a browser with different profiles for each phase and a `visual_diff_cache_bust` query value for each phase. This is done to help avoid being served from the browser cache, it shouldn't be needed as the tool should use two different browser profiles with their own caches.
+After comparison HTML, JSON reports, and CSS restoration are complete, the runner automatically opens the aggregate viewer with `open <absolute-path-to-index.html>`. By default it first copies the complete report bundle to `~/Downloads/website-visual-diff/<run>-<token>/` so Firefox installed as a Snap can read local screenshots and reports. The relocation and open operations must be performed. The only exception is if the user requests it. Therefore `--no-viewer-relocation` (avoid copying the files) from `/tmp/` and `--no-open` (to skip launching a viewer entirely) should only be used if explicitly asked.
+
+An explicitly supplied output directory must be new or empty; use a fresh directory such as `--output-dir "$(mktemp -d /tmp/website-visual-diff.XXXXXX)"` so a failed or interrupted run cannot leave stale screenshots looking current. If opening or copying fails, it reports a warning while preserving the completed artifacts.
+
+The runner uses a browser with different profiles for each phase and a `visual_diff_cache_bust` query value for each phase. This is done to help avoid being served from the browser cache, it shouldn't be needed as the tool should use two different browser profiles with their own caches.
 
 The CSS file is restored even when the changed capture or comparison fails. file and line number (or range) based `--css-ref` rules are replaced by a CSS comment sentinel rather than wrapped in comment, so existing comments inside the rule remain valid. If restoration fails because the file no longer matches the helper's expected modified content, stop and report the state-file path; never overwrite an intervening edit automatically.
 
 Each successful before/after capture also gets a readable `capture-summary.txt` next to Web Inspector's `report.json`. The aggregate viewer links to both summaries. The summary covers HTTP status, final URL, navigation errors, console/page errors, failed requests/responses, action failures, document dimensions, and image loading; consult the raw `report.json` for full details.
 
 If a capture fails before writing `report.json`, read the runner's complete error: it includes both child stderr and stdout. An error containing `sandbox_host_linux`, `sandbox_host`, or `Operation not permitted` is a browser-process permission failure before navigation, not a CSS or WordPress failure. Retry the capture with elevated browser execution. Do not infer that the local site is offline from that error.
+
+The runner also writes structured `failureDetails` to `run.json` and includes it in the CLI JSON and HTML viewer. For child-process failures it records the phase/context, exact command and arguments, working directory, PID, exit code or signal, spawn error, captured stdout/stderr, byte counts, and truncation flags. If the child emits no output, the diagnostic explicitly says so and notes that it may have been terminated before it could report an error. Child output is capped at 20,000 characters in the structured report to keep failure metadata readable.
 
 ## Compare existing captures
 
