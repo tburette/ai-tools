@@ -196,151 +196,69 @@ function relativeUrl(fromDirectory, filePath) {
     .join("/");
 }
 
-const MAX_COMMAND_OUTPUT_LENGTH = 20000;
-
-function serializeError(error) {
-  if (!error) return null;
-  return {
-    name: error.name || "Error",
-    message: String(error.message || error),
-    code: error.code ?? null,
-  };
-}
-
-function truncateCommandOutput(value) {
-  const text = String(value ?? "");
-  if (text.length <= MAX_COMMAND_OUTPUT_LENGTH) {
-    return {
-      text,
-      bytes: Buffer.byteLength(text, "utf8"),
-      truncated: false,
-    };
+function ensurePlaywrightBrowserDebug(env) {
+  const debug = String(env.DEBUG ?? "").trim();
+  const entries = debug.split(/[\s,]+/).filter(Boolean);
+  if (entries.includes("*") || entries.includes("pw:*") || entries.includes("pw:browser") || entries.includes("pw:browser*")) {
+    return debug;
   }
-  const truncatedText = text.slice(0, MAX_COMMAND_OUTPUT_LENGTH);
-  return {
-    text: `${truncatedText}\n… [truncated ${text.length - MAX_COMMAND_OUTPUT_LENGTH} characters]`,
-    bytes: Buffer.byteLength(text, "utf8"),
-    truncated: true,
-  };
+  return debug ? `${debug},pw:browser*` : "pw:browser*";
 }
 
-function formatCommandLine(command, args) {
-  return [command, ...args].map((value) => JSON.stringify(String(value))).join(" ");
-}
-
-function commandFailureDetails(label, result, context = null) {
-  const stdout = truncateCommandOutput(result.stdout);
-  const stderr = truncateCommandOutput(result.stderr);
-  const combinedOutput = `${result.stderr}\n${result.stdout}`;
-  const details = {
-    type: "child-process",
-    label,
-    command: result.command,
-    args: result.args,
-    commandLine: formatCommandLine(result.command, result.args),
-    cwd: result.cwd,
-    pid: result.pid ?? null,
-    exitCode: result.code ?? null,
-    signal: result.signal ?? null,
-    spawnError: serializeError(result.error),
-    stdout: stdout.text,
-    stderr: stderr.text,
-    stdoutBytes: stdout.bytes,
-    stderrBytes: stderr.bytes,
-    stdoutTruncated: stdout.truncated,
-    stderrTruncated: stderr.truncated,
-    context,
-  };
-
-  if (/sandbox_host_linux|sandbox_host|operation not permitted/i.test(combinedOutput)) {
-    details.hint = "The browser was blocked while starting by the execution sandbox; retry this capture with elevated browser permission. This occurs before page navigation.";
-  } else if (!String(result.stdout ?? "").trim() && !String(result.stderr ?? "").trim()) {
-    details.hint = "The child process emitted no stdout or stderr; it may have been terminated before it could report an error.";
+async function runCommand(command, args, { cwd, env } = {}) {
+  const logDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "website-visual-diff-command-"));
+  const stdoutPath = path.join(logDirectory, "stdout.log");
+  const stderrPath = path.join(logDirectory, "stderr.log");
+  let stdoutHandle = null;
+  let stderrHandle = null;
+  try {
+    stdoutHandle = await fs.open(stdoutPath, "w");
+    stderrHandle = await fs.open(stderrPath, "w");
+    const result = await new Promise((resolve) => {
+      let child;
+      try {
+        child = spawn(command, args, {
+          cwd,
+          env,
+          stdio: ["ignore", stdoutHandle.fd, stderrHandle.fd],
+        });
+      } catch (error) {
+        resolve({ code: null, signal: null, error });
+        return;
+      }
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      child.on("error", (error) => finish({ code: null, signal: null, error }));
+      child.on("close", (code, signal) => finish({ code, signal, error: null }));
+    });
+    await Promise.all([stdoutHandle.sync(), stderrHandle.sync()]);
+    const [stdout, stderr] = await Promise.all([
+      fs.readFile(stdoutPath, "utf8"),
+      fs.readFile(stderrPath, "utf8"),
+    ]);
+    return { ...result, stdout, stderr };
+  } finally {
+    await Promise.all([
+      stdoutHandle?.close().catch(() => {}),
+      stderrHandle?.close().catch(() => {}),
+    ]);
+    await fs.rm(logDirectory, { recursive: true, force: true }).catch(() => {});
   }
-  return details;
-}
-
-function formatCommandFailure(details) {
-  const lines = [
-    `${details.label} failed: ${details.signal ? `signal ${details.signal}` : Number.isInteger(details.exitCode) ? `exit code ${details.exitCode}` : "unknown termination"}`,
-    `command: ${details.commandLine}`,
-    `cwd: ${details.cwd}`,
-    `pid: ${details.pid ?? "unknown"}`,
-  ];
-  if (details.spawnError) lines.push(`spawn error: ${details.spawnError.name}: ${details.spawnError.message}`);
-  lines.push(`stdout${details.stdoutTruncated ? " (truncated)" : ""}:\n${details.stdout || "(empty)"}`);
-  lines.push(`stderr${details.stderrTruncated ? " (truncated)" : ""}:\n${details.stderr || "(empty)"}`);
-  if (details.hint) lines.push(`diagnostic: ${details.hint}`);
-  return lines.join("\n");
-}
-
-function serializeFailure(error) {
-  if (error?.failureDetails) return error.failureDetails;
-  return {
-    type: error?.name || "Error",
-    message: String(error?.message || error),
-    stack: error?.stack || null,
-  };
-}
-
-function runCommand(command, args, { cwd, env } = {}) {
-  const commandCwd = cwd ?? process.cwd();
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(command, args, {
-        cwd: commandCwd,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
-      resolve({
-        command,
-        args: [...args],
-        cwd: commandCwd,
-        pid: null,
-        code: null,
-        signal: null,
-        stdout: "",
-        stderr: "",
-        error,
-      });
-      return;
-    }
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        command,
-        args: [...args],
-        cwd: commandCwd,
-        pid: child.pid ?? null,
-        stdout,
-        stderr,
-        ...result,
-      });
-    };
-    child.stdout?.on("data", (chunk) => { stdout += chunk; });
-    child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => finish({ code: null, signal: null, error }));
-    child.on("close", (code, signal) => finish({ code, signal, error: null }));
-  });
 }
 
 async function runNodeCommand(label, script, args, options = {}) {
-  const command = process.execPath;
-  const commandArgs = [script, ...args];
-  const result = await runCommand(command, commandArgs, options);
+  const result = await runCommand(process.execPath, [script, ...args], options);
   if (result.error || result.code !== 0) {
-    const details = commandFailureDetails(label, result, options.context ?? null);
-    const error = new Error(formatCommandFailure(details));
-    error.name = "ChildProcessError";
-    error.failureDetails = details;
-    if (result.error) error.cause = result.error;
-    throw error;
+    const streams = [];
+    if (result.stderr.trim()) streams.push(`stderr:\n${result.stderr.trim()}`);
+    if (result.stdout.trim()) streams.push(`stdout:\n${result.stdout.trim()}`);
+    let details = result.error?.message || streams.join("\n") || `exit ${result.code ?? "unknown"}`;
+    if (result.signal) details = `signal ${result.signal}${streams.length ? `\n${streams.join("\n")}` : ""}`;
+    throw new Error(`${label} failed: ${details}`);
   }
   return result;
 }
@@ -441,32 +359,21 @@ async function capture({
   if (options.failOnErrors) args.push("--fail-on-errors");
   for (const action of options.actions) args.push("--action", action);
 
+  const captureEnv = {
+    ...process.env,
+    WEB_INSPECTOR_STATE_DIR: stateRoot,
+  };
+  captureEnv.DEBUG = ensurePlaywrightBrowserDebug(captureEnv);
   await runNodeCommand(`${phase} capture for ${url}`, captureScript, args.slice(1), {
     cwd: webInspectorDir,
-    env: { ...process.env, WEB_INSPECTOR_STATE_DIR: stateRoot },
-    context: {
-      phase,
-      url,
-      cacheBustedUrl: cacheBusted,
-      profile,
-      outputDir,
-      webInspectorDir,
-      browser: options.browser,
-      viewports: options.viewports,
-      fullPage: options.fullPage,
-      waitUntil: options.waitUntil,
-      waitMs: options.waitMs,
-      timeout: options.timeout,
-    },
+    env: captureEnv,
   });
   const { report, summaryPath } = await readReport(outputDir, `${phase} capture for ${url}`);
   return { url, cacheBustedUrl: cacheBusted, profile, outputDir, reportPath: path.join(outputDir, "report.json"), summaryPath };
 }
 
 async function restoreCss({ commentScript, statePath }) {
-  const result = await runNodeCommand("CSS restoration", commentScript, ["restore", "--state", statePath], {
-    context: { statePath },
-  });
+  const result = await runNodeCommand("CSS restoration", commentScript, ["restore", "--state", statePath]);
   return result;
 }
 
@@ -480,7 +387,7 @@ async function openViewer(filePath) {
   return null;
 }
 
-async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cssReferences, resolvedRules, restoration, error, failureDetails, openWarning }) {
+async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cssReferences, resolvedRules, restoration, error, openWarning, generatedAt }) {
   const targetItems = targets.map((target) => {
     const comparisonLink = target.comparisonDir
       ? `<a href="${relativeUrl(outputDir, path.join(target.comparisonDir, "index.html"))}">open comparison</a>`
@@ -494,12 +401,9 @@ async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cs
     return `<li><strong>${htmlEscape(target.originalUrl)}</strong> — ${comparisonLink} · ${beforeSummaryLink} · ${afterSummaryLink}</li>`;
   }).join("\n");
   const errors = [error, restoration.error, openWarning].filter(Boolean);
-  const diagnosticHtml = failureDetails
-    ? `<details open><summary>Structured failure details</summary><pre>${htmlEscape(JSON.stringify(failureDetails, null, 2))}</pre></details>`
-    : "";
   const errorHtml = errors.length
-    ? `<div class="errors"><h2>Problems</h2><ul>${errors.map((item) => `<li><pre>${htmlEscape(item)}</pre></li>`).join("")}</ul>${diagnosticHtml}</div>`
-    : diagnosticHtml;
+    ? `<div class="errors"><h2>Problems</h2><ul>${errors.map((item) => `<li>${htmlEscape(item)}</li>`).join("")}</ul></div>`
+    : "";
   const status = error || restoration.error ? "failed" : "complete";
   const cssReferenceHtml = cssReferences.length
     ? `<p><strong>CSS references:</strong> ${cssReferences.map((reference) => htmlEscape(reference)).join("<br>")}</p>`
@@ -509,8 +413,9 @@ async function writeRunIndex({ outputDir, targets, settings, cssFile, ranges, cs
     : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Website visual diff run</title>
-<style>body{font-family:system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;line-height:1.5}.errors{border:1px solid #dc2626;padding:1rem;border-radius:.5rem}.meta{background:#f3f4f6;padding:1rem;border-radius:.5rem}pre{white-space:pre-wrap;overflow:auto;background:#111827;color:#f9fafb;padding:1rem;border-radius:.5rem}summary{cursor:pointer}a{color:#0369a1}</style></head>
+<style>body{font-family:system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;line-height:1.5}.errors{border:1px solid #dc2626;padding:1rem;border-radius:.5rem}.meta{background:#f3f4f6;padding:1rem;border-radius:.5rem}a{color:#0369a1}</style></head>
 <body><h1>Website visual diff run</h1><p><strong>Status:</strong> ${status}</p>
+<p><strong>Generated at:</strong> <time datetime="${htmlEscape(generatedAt)}">${htmlEscape(generatedAt)}</time></p>
 <div class="meta"><p><strong>CSS file:</strong> ${htmlEscape(cssFile)}</p>${cssReferenceHtml}${resolvedRulesHtml}<p><strong>Ranges:</strong> ${htmlEscape(ranges.join(", "))}</p><p><strong>Viewports:</strong> ${htmlEscape(settings.viewports.map(({ width, height }) => `${width}x${height}`).join(", "))}</p><p><strong>Restored:</strong> ${restoration.restored ? "yes" : "no"}</p></div>
 ${errorHtml}<h2>Targets</h2><ul>${targetItems}</ul></body></html>\n`;
   const htmlPath = path.join(outputDir, "index.html");
@@ -574,7 +479,6 @@ async function main() {
     cacheBustParameter: "visual_diff_cache_bust",
   };
   let failure = null;
-  let failureDetails = null;
   let restoration = { attempted: false, restored: false, error: null };
   let openWarning = null;
   let viewerPath = null;
@@ -628,7 +532,6 @@ async function main() {
     }
   } catch (error) {
     failure = error.message || String(error);
-    failureDetails = serializeFailure(error);
   } finally {
     if (cssDisabled || await exists(statePath)) {
       restoration.attempted = true;
@@ -638,14 +541,14 @@ async function main() {
         cssDisabled = false;
       } catch (error) {
         restoration.error = error.message || String(error);
-        restoration.errorDetails = serializeFailure(error);
       }
     }
     if (removeStateRoot) await fs.rm(stateRoot, { recursive: true, force: true }).catch(() => {});
+    const generatedAt = new Date().toISOString();
     runData = {
       version: 1,
       status: failure || restoration.error ? "failed" : "complete",
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       outputDir,
       cssFile,
       ranges: resolvedRanges,
@@ -655,7 +558,6 @@ async function main() {
       targets,
       restoration,
       error: failure,
-      failureDetails,
       viewerPath,
       openWarning,
     };
@@ -670,8 +572,8 @@ async function main() {
       resolvedRules: resolvedCss.map(({ rule }) => rule),
       restoration,
       error: failure,
-      failureDetails,
       openWarning: null,
+      generatedAt,
     });
     if (options.openViewer) {
       try {

@@ -136,6 +136,9 @@ try {
   } });
   const runData = JSON.parse(await fs.readFile(path.join(runnerOutput, "run.json"), "utf8"));
   assert.equal(runData.status, "complete");
+  const runIndex = await fs.readFile(path.join(runnerOutput, "index.html"), "utf8");
+  const runGeneratedTime = '<time datetime="' + runData.generatedAt + '">' + runData.generatedAt + "</time>";
+  assert.ok(runIndex.includes(runGeneratedTime));
   assert.deepEqual(runData.ranges, ["4:9"]);
   assert.equal(runData.resolvedRules[0].prelude.includes(".beta" + escapedComma + ",part"), true);
   assert.equal(runData.restoration.restored, true);
@@ -156,36 +159,31 @@ try {
   assert.match(captureRecords[0].url, /visual_diff_cache_bust=/);
   assert.notEqual(captureRecords[0].profile, captureRecords[1].profile);
 
-  const silentFailInspectorDir = path.join(root, "silent-fail-web-inspector");
-  await fs.mkdir(path.join(silentFailInspectorDir, "scripts"), { recursive: true });
-  await fs.writeFile(path.join(silentFailInspectorDir, "scripts", "capture_page.mjs"), "process.exitCode = 1;\n", "utf8");
+  const diagnosticFailInspectorDir = path.join(root, "diagnostic-fail-web-inspector");
+  await fs.mkdir(path.join(diagnosticFailInspectorDir, "scripts"), { recursive: true });
+  await fs.writeFile(path.join(diagnosticFailInspectorDir, "scripts", "capture_page.mjs"), [
+    'process.stderr.write("FATAL:content/browser/sandbox_host_linux.cc:41 Check failed: . shutdown: Operation not permitted (1)\\n");',
+    'process.stderr.write("DEBUG=" + (process.env.DEBUG || "") + "\\n");',
+    "process.exitCode = 1;",
+  ].join("\n") + "\n", "utf8");
   const failedRunnerOutput = path.join(root, "failed-runner-output");
   const failedRunner = await run(process.execPath, [
     path.join(scriptsDir, "run_visual_diff.mjs"),
     "http://example.test/",
     "--css-ref", cssReference,
-    "--web-inspector-dir", silentFailInspectorDir,
+    "--web-inspector-dir", diagnosticFailInspectorDir,
     "--output-dir", failedRunnerOutput,
     "--viewport", "32x32",
     "--no-open",
   ], { cwd: skillDir });
   assert.equal(failedRunner.code, 1, failedRunner.stdout || failedRunner.stderr);
-  assert.match(failedRunner.stderr, /\"failureDetails\"/);
+  assert.doesNotMatch(failedRunner.stderr, /failureDetails/);
   const failedRunData = JSON.parse(await fs.readFile(path.join(failedRunnerOutput, "run.json"), "utf8"));
   assert.equal(failedRunData.status, "failed");
-  assert.match(failedRunData.error, /before capture .* failed: exit code 1/);
-  assert.match(failedRunData.error, /command:/);
-  assert.match(failedRunData.error, /diagnostic: .*no stdout or stderr/);
-  assert.equal(failedRunData.failureDetails.type, "child-process");
-  assert.equal(failedRunData.failureDetails.exitCode, 1);
-  assert.equal(failedRunData.failureDetails.signal, null);
-  assert.equal(failedRunData.failureDetails.stdout, "");
-  assert.equal(failedRunData.failureDetails.stderr, "");
-  assert.equal(failedRunData.failureDetails.context.phase, "before");
-  assert.equal(failedRunData.failureDetails.context.url, "http://example.test/");
-  const failedIndex = await fs.readFile(path.join(failedRunnerOutput, "index.html"), "utf8");
-  assert.match(failedIndex, /Structured failure details/);
-  assert.match(failedIndex, /exitCode.*1/);
+  assert.equal(failedRunData.failureDetails, undefined);
+  assert.match(failedRunData.error, /sandbox_host_linux\.cc:41/);
+  assert.match(failedRunData.error, /Operation not permitted/);
+  assert.match(failedRunData.error, /DEBUG=pw:browser\*/);
   assert.equal(await fs.readFile(cssFile, "utf8"), complexCss);
 
   const imageToolsAvailable = await Promise.all(["convert", "identify", "compare", "montage"].map(commandAvailable));
@@ -215,6 +213,8 @@ try {
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "diff.png")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "side-by-side.png")).then(() => true).catch(() => false), true);
     const comparisonHtml = await fs.readFile(path.join(comparisonDir, "index.html"), "utf8");
+    const comparisonGeneratedTime = '<time datetime="' + summary.generatedAt + '">' + summary.generatedAt + "</time>";
+    assert.ok(comparisonHtml.includes(comparisonGeneratedTime));
     assert.equal(comparisonHtml.includes('class="wide"'), false);
     assert.equal((comparisonHtml.match(/class="grid"/g) ?? []).length, 1);
 

@@ -317,7 +317,7 @@ function renderPair(pair, outputDir) {
 </section>`;
 }
 
-function renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options }) {
+function renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options, generatedAt }) {
   const reportLinks = [];
   if (beforeInfo.reportPath) reportLinks.push(`<a href="${relativeUrl(outputDir, beforeInfo.reportPath)}">original report.json</a>`);
   if (afterInfo.reportPath) reportLinks.push(`<a href="${relativeUrl(outputDir, afterInfo.reportPath)}">changed report.json</a>`);
@@ -359,6 +359,7 @@ function renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options
 <main>
   <h1>Website visual diff</h1>
   <div class="meta">
+    <p><strong>Generated at:</strong> <time datetime="${htmlEscape(generatedAt)}">${htmlEscape(generatedAt)}</time></p>
     <p><strong>Original:</strong> ${htmlEscape(beforeInfo.directory)}</p>
     <p><strong>Changed:</strong> ${htmlEscape(afterInfo.directory)}</p>
     <p><strong>ImageMagick fuzz:</strong> ${htmlEscape(options.fuzz)}</p>
@@ -426,9 +427,10 @@ export async function compareDirectories(options) {
   }
   if (missingBefore.length) warnings.push(`Missing from original capture: ${missingBefore.join(", ")}`);
   if (missingAfter.length) warnings.push(`Missing from changed capture: ${missingAfter.join(", ")}`);
+  const generatedAt = new Date().toISOString();
   const summary = {
     version: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     before: { directory: beforeInfo.directory, report: beforeInfo.reportPath },
     after: { directory: afterInfo.directory, report: afterInfo.reportPath },
     options: { fuzz: options.fuzz },
@@ -445,7 +447,7 @@ export async function compareDirectories(options) {
   const summaryPath = path.join(outputDir, "visual-diff.json");
   await fs.writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   const htmlPath = path.join(outputDir, "index.html");
-  await fs.writeFile(htmlPath, renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options }), "utf8");
+  await fs.writeFile(htmlPath, renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options, generatedAt }), "utf8");
 
   if (options.open) {
     const openWarning = await maybeOpen(htmlPath, `comparison-${Date.now()}-${process.pid}`, options.relocateViewer);

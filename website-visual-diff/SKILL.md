@@ -7,7 +7,7 @@ description: Compare before-and-after rendered versions of websites with cache-i
 
 Use this skill when the question is “what changed visually between these rendered versions?” Capture the same URL(s), viewport(s), browser/device settings, and interaction state on both sides, then inspect the generated comparison and browser reports.
 
-The runner uses the two viewports: 1440×1100 and 390×844, both with full-page capture. If it has been requested, you can choose the viewports to use with `--viewport` (can be repeated) and `--no-full-page` to the runner to change those values.
+The runner uses the two viewports: 1440×1100 and 390×844, both with full-page capture. If it has been requested, you can choose the viewports to use with `--viewport` (eg. `--viewport 1440x1100`) which can be repeated and `--no-full-page` to the runner to change those values.
 
 The primary workflow is a reversible CSS experiment using `scripts/run_visual_diff.mjs`. It captures the original page, temporarily disables one or more CSS rules, captures the changed page, generates comparison artifacts, and restores the file in a `finally` path.
 
@@ -35,8 +35,6 @@ Pass it to the runner with `--css-ref`:
 node scripts/run_visual_diff.mjs \
   http://lepaysanurbain.test:8888/ \
   --css-ref 'themes/lepaysanurbain/assets/css/theme.css:26 (.lpu-graphic-band)' \
-  --viewport 1440x1100 \
-  --viewport 390x844 \
   --full-page \
   --output-dir /tmp/lpu-theme-css-diff
 ```
@@ -51,8 +49,6 @@ node scripts/run_visual_diff.mjs \
   http://lepaysanurbain.test:8888/ \
   --css-file themes/lepaysanurbain/assets/css/theme.css \
   --range 120:134 \
-  --viewport 1440x1100 \
-  --viewport 390x844 \
   --full-page \
   --output-dir /tmp/lpu-theme-css-diff
 ```
@@ -67,9 +63,7 @@ The CSS file is restored even when the changed capture or comparison fails. file
 
 Each successful before/after capture also gets a readable `capture-summary.txt` next to Web Inspector's `report.json`. The aggregate viewer links to both summaries. The summary covers HTTP status, final URL, navigation errors, console/page errors, failed requests/responses, action failures, document dimensions, and image loading; consult the raw `report.json` for full details.
 
-If a capture fails before writing `report.json`, read the runner's complete error: it includes both child stderr and stdout. An error containing `sandbox_host_linux`, `sandbox_host`, or `Operation not permitted` is a browser-process permission failure before navigation, not a CSS or WordPress failure. Retry the capture with elevated browser execution. Do not infer that the local site is offline from that error.
-
-The runner also writes structured `failureDetails` to `run.json` and includes it in the CLI JSON and HTML viewer. For child-process failures it records the phase/context, exact command and arguments, working directory, PID, exit code or signal, spawn error, captured stdout/stderr, byte counts, and truncation flags. If the child emits no output, the diagnostic explicitly says so and notes that it may have been terminated before it could report an error. Child output is capped at 20,000 characters in the structured report to keep failure metadata readable.
+If a capture fails before writing `report.json`, read the runner's complete error: it includes the Web Inspector child's stderr and stdout. An error containing `sandbox_host_linux`, `sandbox_host`, or `Operation not permitted` is a browser-process permission failure before navigation, not a CSS or WordPress failure. Retry the capture with elevated browser execution. Do not infer that the local site is offline from that error.
 
 ## Compare existing captures
 
