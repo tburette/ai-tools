@@ -299,7 +299,6 @@ function renderPair(pair, outputDir) {
   const before = relativeUrl(outputDir, pair.beforePath);
   const after = relativeUrl(outputDir, pair.afterPath);
   const diff = pair.diffPath ? relativeUrl(outputDir, pair.diffPath) : null;
-  const sideBySide = pair.sideBySidePath ? relativeUrl(outputDir, pair.sideBySidePath) : null;
   const changed = pair.changedPixels == null
     ? "not measured"
     : `${pair.changedPixels.toLocaleString()} pixels (${pair.changedPercent.toFixed(3)}% of the comparison canvas)`;
@@ -310,7 +309,6 @@ function renderPair(pair, outputDir) {
   <h2>${htmlEscape(pair.name)}</h2>
   <p><strong>Changed pixels:</strong> ${htmlEscape(changed)}${pair.dimensionMismatch ? " · image dimensions differ and were padded to a common canvas" : ""}</p>
   ${warnings}
-  ${sideBySide ? `<figure class="wide"><figcaption>Original · changed · pixel diff</figcaption><a href="${sideBySide}"><img src="${sideBySide}" alt="Original, changed, and pixel diff side by side"></a></figure>` : ""}
   <div class="grid">
     <figure><figcaption>Original</figcaption><a href="${before}"><img src="${before}" alt="Original screenshot"></a></figure>
     <figure><figcaption>Changed</figcaption><a href="${after}"><img src="${after}" alt="Changed screenshot"></a></figure>
@@ -351,7 +349,6 @@ function renderHtml({ beforeInfo, afterInfo, pairs, warnings, outputDir, options
     .pair { margin-top: 2rem; padding-top: 1rem; border-top: 2px solid color-mix(in srgb, CanvasText 25%, transparent); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; }
     figure { margin: 0; }
-    figure.wide { margin: 1rem 0; }
     figcaption { font-weight: 700; margin: .4rem 0; }
     img { display: block; max-width: 100%; height: auto; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); background: white; }
     a { color: LinkText; }

@@ -182,6 +182,9 @@ try {
     assert.equal(await fs.access(path.join(comparisonDir, "index.html")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "diff.png")).then(() => true).catch(() => false), true);
     assert.equal(await fs.access(path.join(comparisonDir, "pairs", "1440x1100-full", "side-by-side.png")).then(() => true).catch(() => false), true);
+    const comparisonHtml = await fs.readFile(path.join(comparisonDir, "index.html"), "utf8");
+    assert.equal(comparisonHtml.includes('class="wide"'), false);
+    assert.equal((comparisonHtml.match(/class="grid"/g) ?? []).length, 1);
 
     const openedComparisonDir = path.join(root, "opened-comparison");
     await runNode(path.join(scriptsDir, "compare_screenshots.mjs"), [
