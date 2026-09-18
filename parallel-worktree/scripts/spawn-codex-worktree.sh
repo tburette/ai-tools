@@ -56,8 +56,5 @@ CODEX_PARALLEL_PROMPT="$PROMPT" \
         echo "============================================================"
         echo "Codex exited with status: $status"
         echo "Worktree: $PWD"
-        echo "============================================================"
-        echo
-        echo "Review the Codex report above. The shell is intentionally left open."
         exec bash
     ' bash "$WORKTREE_PATH"
