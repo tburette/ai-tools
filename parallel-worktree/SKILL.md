@@ -9,6 +9,25 @@ Use this skill to delegate the user's task to a **separate Codex CLI process** w
 
 All scripts are relative to the skill directory (`cd` into it first or call by absolute path). The preflight and launch commands must still run with the user's project as their working directory, because `../<slug>` is relative to that directory; when the project is not the skill directory, call the bundled script by its absolute path.
 
+## Expedited workflow
+
+Use this workflow whenever the user's request includes the trigger phrase expedite (such as `expedite parallel-worktree` or `$parallel-worktree expedite`). This mode intentionally skips the standard preflight and manual naming workflow.
+
+In expedited mode, the only judgment required before launch is constructing the delegated prompt described in **Prepare the delegated prompt**. Do not inspect repository status, branches, worktrees, or sibling directories. Do not choose a slug. Do not run `preflight-worktree.sh`, `git status`, `git worktree list`, or other preliminary commands.
+
+Invoke `scripts/expedite-codex-worktree.sh` with the complete delegated prompt as its sole argument. Use the script's absolute path.
+
+```bash
+scripts/expedite-codex-worktree.sh \
+  "<delegated-prompt>"
+```
+
+Because the script launches GNOME Terminal, run it with the tool's `sandbox_permissions: require_escalated` GUI permission; do not first attempt it in the sandbox.
+
+The script prints the generated branch name and worktree pathas a response. Do not perform separate verification unless the script fails.
+
+The rest of this skill describes the standard workflow and does not apply in expedited mode, except for **Prepare the delegated prompt**, the independence rules after launch, and **Final response to the user**.
+
 ## Core rule
 
 The spawned Codex instance is completely independent.
@@ -20,11 +39,10 @@ After launching it:
 - Do **not** inspect its working tree while it is working.
 - Do **not** wait for its completion.
 - Your only responsibilities are:
-  1. validate the current repository state;
-  2. choose/create the worktree and branch;
-  3. construct a high-quality handoff prompt;
-  4. launch a new GNOME Terminal containing the new Codex instance;
-  5. report to the user where the worktree is and what branch was created.
+  1. follow either the expedited or standard creation workflow;
+  2. construct a high-quality handoff prompt;
+  3. launch a new GNOME Terminal containing the new Codex instance;
+  4. report to the user where the worktree is and what branch was created.
 
 The user will manage the other Codex instance directly.
 
@@ -43,6 +61,8 @@ The user's current Codex session remains in its original state.
 
 ## Before creating anything
 
+This section applies only to the standard workflow. Skip it entirely in expedited mode.
+
 Run the bundled read-only preflight script before choosing a slug. It takes no arguments and prints the repository root, current status, local branch names, existing worktrees, every entry in the current working directory's parent (`..`), and the rules for selecting a collision-free slug. Do not call extra commands.
 
 Invoke the bundled script using its path relative to the skill directory (or its absolute path while keeping the project as the working directory):
@@ -56,6 +76,8 @@ Read the labeled output, then choose a short slug. The slug must be used exactly
 Do not destroy, stash, reset, or commit the user's existing changes.
 
 ## Worktree and branch naming
+
+This section applies only to the standard workflow. In expedited mode, the bundled script generates both names automatically.
 
 Derive a short slug from the user's task.
 
