@@ -24,6 +24,8 @@ if [[ "$(git -C "$WORKTREE_PATH" rev-parse --is-inside-work-tree 2>/dev/null)" !
 	exit 1
 fi
 
+WORKTREE_PATH="$(cd "$WORKTREE_PATH" && pwd -P)"
+
 # Codex may be launched from a host process that intentionally uses a
 # non-interactive terminal environment (for example, NO_COLOR=1 and
 # TERM=dumb). GNOME Terminal provides a real color-capable terminal, so do
@@ -58,4 +60,4 @@ CODEX_PARALLEL_PROMPT="$PROMPT" \
         echo
         echo "Review the Codex report above. The shell is intentionally left open."
         exec bash
-    '
+    ' bash "$WORKTREE_PATH"
