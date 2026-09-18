@@ -86,15 +86,15 @@ The post-create status check is sufficient verification; do not run a second `gi
 
 ## Prepare the delegated prompt
 
-The spawned agent must receive the user's original task verbatim, plus operational instructions.
-
-The launcher's second argument is the complete prompt constructed below, passed as one shell-quoted argument. `<delegated-prompt>` in the command example is only a placeholder; it is not a predefined environment variable.
+The launcher's first argument is the worktree path and the second argument is the prompt which is made of task the user wrote for it, plus operational instructions. The complete prompt is, passed as one shell-quoted argument. `<delegated-prompt>` in the command example is only a placeholder.
 
 Construct a prompt with these sections:
 
 ### Task
 
-Start the handoff with the user's task for the new Codex instance copied verbatim. Preserve the exact wording, punctuation, paths, mentions, parenthetical notes, examples, requirements, constraints, and acceptance criteria. Do not paraphrase, summarize, correct, or silently omit any part of the task. Keep skill invocations such as `$parallel-worktree` in the copied task. Put any operational instructions in separate sections after the verbatim task.
+Start the handoff with the task for the new Codex instance copied verbatim.
+Only pass instructions for the codex instance, not instructions you received. For example remove instructions to start a subagent and mentions of `$parallel-worktree`.
+Preserve the exact wording, punctuation, paths, mentions, parenthetical notes, examples, requirements, constraints, and acceptance criteria. Do not paraphrase, summarize, correct, or silently omit any part of the task.
 
 ### Working context
 
@@ -141,8 +141,7 @@ The agent should stop testing once it has reasonable confidence that the impleme
 
 Tell the agent:
 
-- create a clean, reviewable commit when the implementation is complete;
-- you can create multiple commits if it makes sense;
+- create a clean, reviewable commit when the implementation is complete; you can split it into multiple commits if it makes sense;
 - do not push;
 - do not merge anything;
 - do not modify the user's main checkout.
