@@ -24,10 +24,31 @@ if [[ "$(git -C "$WORKTREE_PATH" rev-parse --is-inside-work-tree 2>/dev/null)" !
 	exit 1
 fi
 
-CODEX_PARALLEL_PROMPT="$PROMPT" gnome-terminal \
+# Codex may be launched from a host process that intentionally uses a
+# non-interactive terminal environment (for example, NO_COLOR=1 and
+# TERM=dumb). GNOME Terminal provides a real color-capable terminal, so do
+# not let those inherited settings disable the child Codex TUI.
+# TERMINAL_TYPE="${TERM:-xterm-256color}"
+# if [[ "$TERMINAL_TYPE" == "dumb" ]]; then
+# 	TERMINAL_TYPE="xterm-256color"
+# fi
+
+# not needed to have colors on my system
+# env -u NO_COLOR \
+# 	TERM="$TERMINAL_TYPE" \
+# 	COLORTERM="${COLORTERM:-truecolor}" \
+
+CODEX_PARALLEL_PROMPT="$PROMPT" \
+	gnome-terminal \
 	--working-directory="$WORKTREE_PATH" \
 	-- bash -c '
+        unset NO_COLOR
+        if [[ -z "${TERM:-}" || "$TERM" == "dumb" ]]; then
+            export TERM=xterm-256color
+        fi
+        export COLORTERM="${COLORTERM:-truecolor}"
         codex "$CODEX_PARALLEL_PROMPT"
+
         status=$?
         echo
         echo "============================================================"
