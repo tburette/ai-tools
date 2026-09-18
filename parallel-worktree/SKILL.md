@@ -92,9 +92,10 @@ Construct a prompt with these sections:
 
 ### Task
 
-Start the handoff with the task for the new Codex instance copied verbatim.
-Only pass instructions for the codex instance, not instructions you received. For example remove instructions to start a subagent and mentions of `$parallel-worktree`.
-Preserve the exact wording, punctuation, paths, mentions, parenthetical notes, examples, requirements, constraints, and acceptance criteria. Do not paraphrase, summarize, correct, or silently omit any part of the task.
+Start the handoff with the task the user wants to give the new Codex instance copied.
+Only pass instructions for the codex instance, not instructions you received yourself. For example remove instructions to start a subagent and mentions of `$parallel-worktree` and expedite.
+Do not transform or reword the instructions for the new codex instance.
+The only exception is if part of the instruction you receive explains how you should pass the instructions to the new codex instance. You can interpret that kind of instructions instead of passing them as-is. Of course make sure it is adressed to you (launcher of codex) and that it is not an instruction that should be passed along.
 
 ### Working context
 
