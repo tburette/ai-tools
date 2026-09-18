@@ -49,7 +49,7 @@ Substitute the chosen short slug (see below for slug explanation) for `<slug>` i
 SLUG="<slug>"
 PARENT_DIR="$(dirname "$PWD")"
 WORKTREE_PATH="$PARENT_DIR/$SLUG"
-BRANCH="codex/$SLUG"
+BRANCH="$SLUG"
 
 printf 'repository: '; git rev-parse --show-toplevel
 git status --short --branch
@@ -82,15 +82,15 @@ Use the preflight output to check whether the target branch or worktree already 
 Create it with native Git:
 
 ```bash
-git worktree add -b "codex/<slug>" "$WORKTREE_PATH" HEAD
+git worktree add -b "<slug>" "$WORKTREE_PATH" HEAD
 ```
 
 Create and launch in one command. Because the launcher opens GNOME Terminal, run this entire command with the tool's `sandbox_permissions: require_escalated` GUI permission; do not first attempt the launcher in the sandbox, since that only creates an avoidable display-access failure:
 
 ```bash
-git worktree add -b "codex/<slug>" "$WORKTREE_PATH" HEAD && \
+git worktree add -b "<slug>" "$WORKTREE_PATH" HEAD && \
 git -C "$WORKTREE_PATH" status --short --branch && \
-/home/tburette/.codex/skills/parallel-worktree/scripts/spawn-codex-worktree.sh \
+~/.codex/skills/parallel-worktree/scripts/spawn-codex-worktree.sh \
   "$WORKTREE_PATH" \
   "$DELEGATED_PROMPT"
 ```
