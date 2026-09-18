@@ -41,28 +41,43 @@ The user's current Codex session remains in its original state.
 
 ## Before creating anything
 
-1. Verify this is a Git repository.
-2. Inspect:
+Run a single read-only preflight command to collect all state needed for the decision. Do not make separate calls for each check. assume `scripts/spawn-codex-worktree.sh` exists (at the skill path).
+
+Substitute the chosen short slug (see below for slug explanation) for `<slug>` in this example:
 
 ```bash
+SLUG="<slug>"
+PARENT_DIR="$(dirname "$PWD")"
+WORKTREE_PATH="$PARENT_DIR/$SLUG"
+BRANCH="codex/$SLUG"
+
+printf 'repository: '; git rev-parse --show-toplevel
 git status --short --branch
-git branch --show-current
+git worktree list --porcelain
+printf 'parent entries:\n'
+find "$PARENT_DIR" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+printf 'candidate branch: %s\n' "$BRANCH"
+printf 'candidate worktree: %s\n' "$WORKTREE_PATH"
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    echo 'candidate branch already exists'
+fi
+if [[ -e "$WORKTREE_PATH" || -L "$WORKTREE_PATH" ]]; then
+    echo 'candidate worktree path already exists'
+fi
 ```
 
-3. Do not destroy, stash, reset, or commit the user's existing changes.
-4. If the current checkout has uncommitted changes, normally create the new worktree from the current `HEAD`, **not** by copying uncommitted changes into the new worktree. Tell the user that the delegated agent starts from `HEAD` and therefore will not see uncommitted work from the current checkout.
-   If the task clearly depends on current uncommitted changes, stop and ask the user whether those changes should be committed first or otherwise made available. Do not guess.
+Do not destroy, stash, reset, or commit the user's existing changes.
 
 ## Worktree and branch naming
 
 Derive a short slug from the user's task.
 
-Use itfor the branch and the matching worktree directory.
+Use it for the branch and the matching worktree directory.
 
 Use a directory in the parent directory (so the current working directory and the new one will be alongside in the same parent directory).
 Do not create a worktree inside another worktree.
 
-Before creation, check whether the target branch or worktree already exists. If it does, do not overwrite it. Choose a unique suffix such as `-2`, `-3`, etc., and tell the user.
+Use the preflight output to check whether the target branch or worktree already exists. If either does, do not overwrite it. Choose a unique suffix such as `-2`, `-3`, etc., and tell the user.
 
 Create it with native Git:
 
@@ -70,22 +85,27 @@ Create it with native Git:
 git worktree add -b "codex/<slug>" "$WORKTREE_PATH" HEAD
 ```
 
-Then verify:
+Create and launch in one command. Because the launcher opens GNOME Terminal, run this entire command with the tool's `sandbox_permissions: require_escalated` GUI permission; do not first attempt the launcher in the sandbox, since that only creates an avoidable display-access failure:
 
 ```bash
-git -C "$WORKTREE_PATH" status --short --branch
-git worktree list
+git worktree add -b "codex/<slug>" "$WORKTREE_PATH" HEAD && \
+git -C "$WORKTREE_PATH" status --short --branch && \
+/home/tburette/.codex/skills/parallel-worktree/scripts/spawn-codex-worktree.sh \
+  "$WORKTREE_PATH" \
+  "$DELEGATED_PROMPT"
 ```
+
+The post-create status check is sufficient verification; do not run a second `git worktree list` unless the command fails or the user asks for it.
 
 ## Prepare the delegated prompt
 
-The spawned agent must receive the user's original task, plus operational instructions.
+The spawned agent must receive the user's original task verbatim, plus operational instructions.
 
 Construct a prompt with these sections:
 
 ### Task
 
-Copy the user's task faithfully. Preserve important paths, requirements, constraints, examples, and acceptance criteria.
+Start the handoff with the user's task for the new Codex instance copied verbatim. Preserve the exact wording, punctuation, paths, mentions, parenthetical notes, examples, requirements, constraints, and acceptance criteria. Do not paraphrase, summarize, correct, or silently omit any part of the task. Keep skill invocations such as `$parallel-worktree` in the copied task. Put any operational instructions in separate sections after the verbatim task.
 
 ### Working context
 
