@@ -7,6 +7,8 @@ description: Create an isolated Git worktree for an implementation task and laun
 
 Use this skill to delegate the user's task to a **separate Codex CLI process** working in its own Git worktree and terminal.
 
+All scripts are relative to the skill directory (`cd` into it first or call by absolute path). The preflight and launch commands must still run with the user's project as their working directory, because `../<slug>` is relative to that directory; when the project is not the skill directory, call the bundled script by its absolute path.
+
 ## Core rule
 
 The spawned Codex instance is completely independent.
@@ -41,30 +43,15 @@ The user's current Codex session remains in its original state.
 
 ## Before creating anything
 
-Run a single read-only preflight command to collect all state needed for the decision. Do not make separate calls for each check. assume `scripts/spawn-codex-worktree.sh` exists (at the skill path).
+Run the bundled read-only preflight script before choosing a slug. It takes no arguments and prints the repository root, current status, local branch names, existing worktrees, every entry in the current working directory's parent (`..`), and the rules for selecting a collision-free slug. Do not call extra commands.
 
-Substitute the chosen short slug (see below for slug explanation) for `<slug>` in this example:
+Invoke the bundled script using its path relative to the skill directory (or its absolute path while keeping the project as the working directory):
 
 ```bash
-SLUG="<slug>"
-PARENT_DIR="$(dirname "$PWD")"
-WORKTREE_PATH="$PARENT_DIR/$SLUG"
-BRANCH="$SLUG"
-
-printf 'repository: '; git rev-parse --show-toplevel
-git status --short --branch
-git worktree list --porcelain
-printf 'parent entries:\n'
-find "$PARENT_DIR" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
-printf 'candidate branch: %s\n' "$BRANCH"
-printf 'candidate worktree: %s\n' "$WORKTREE_PATH"
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-    echo 'candidate branch already exists'
-fi
-if [[ -e "$WORKTREE_PATH" || -L "$WORKTREE_PATH" ]]; then
-    echo 'candidate worktree path already exists'
-fi
+scripts/preflight-worktree.sh
 ```
+
+Read the labeled output, then choose a short slug. The slug must be used exactly as the local branch name and sibling worktree directory name; never prepend `codex/`.
 
 Do not destroy, stash, reset, or commit the user's existing changes.
 
@@ -74,25 +61,25 @@ Derive a short slug from the user's task.
 
 Use it for the branch and the matching worktree directory.
 
-Use a directory in the parent directory (so the current working directory and the new one will be alongside in the same parent directory).
+Use the sibling directory `../<slug>` relative to the current working directory.
 Do not create a worktree inside another worktree.
 
-Use the preflight output to check whether the target branch or worktree already exists. If either does, do not overwrite it. Choose a unique suffix such as `-2`, `-3`, etc., and tell the user.
+Use the preflight output to check whether the target branch, worktree, or `../<slug>` parent entry already exists. If any does, do not overwrite it. Choose another slug or add a suffix such as `-2`, `-3`, etc., and tell the user.
 
 Create it with native Git:
 
 ```bash
-git worktree add -b "<slug>" "$WORKTREE_PATH" HEAD
+git worktree add "../<slug>"
 ```
 
-Create and launch in one command. Because the launcher opens GNOME Terminal, run this entire command with the tool's `sandbox_permissions: require_escalated` GUI permission; do not first attempt the launcher in the sandbox, since that only creates an avoidable display-access failure:
+Create and launch in one command. Replace `scripts/spawn-codex-worktree.sh` below with the absolute path to that bundled script when this command runs from the project directory. Because the launcher opens GNOME Terminal, run this entire command with the tool's `sandbox_permissions: require_escalated` GUI permission; do not first attempt the launcher in the sandbox, since that only creates an avoidable display-access failure:
 
 ```bash
-git worktree add -b "<slug>" "$WORKTREE_PATH" HEAD && \
-git -C "$WORKTREE_PATH" status --short --branch && \
-~/.codex/skills/parallel-worktree/scripts/spawn-codex-worktree.sh \
-  "$WORKTREE_PATH" \
-  "$DELEGATED_PROMPT"
+git worktree add "../<slug>" && \
+git -C "../<slug>" status --short --branch && \
+scripts/spawn-codex-worktree.sh \
+  "../<slug>" \
+  "<delegated-prompt>"
 ```
 
 The post-create status check is sufficient verification; do not run a second `git worktree list` unless the command fails or the user asks for it.
@@ -100,6 +87,8 @@ The post-create status check is sufficient verification; do not run a second `gi
 ## Prepare the delegated prompt
 
 The spawned agent must receive the user's original task verbatim, plus operational instructions.
+
+The launcher's second argument is the complete prompt constructed below, passed as one shell-quoted argument. `<delegated-prompt>` in the command example is only a placeholder; it is not a predefined environment variable.
 
 Construct a prompt with these sections:
 
@@ -153,13 +142,10 @@ The agent should stop testing once it has reasonable confidence that the impleme
 Tell the agent:
 
 - create a clean, reviewable commit when the implementation is complete;
-- You can create multiple commits if it makes sense;
-- do not commit unrelated changes;
+- you can create multiple commits if it makes sense;
 - do not push;
 - do not merge anything;
 - do not modify the user's main checkout.
-
-Use a concise commit message appropriate to the task.
 
 ### Completion report
 
@@ -187,8 +173,6 @@ NOTES / FOLLOW-UPS
 - <or "None">
 ```
 
-Do **not** include a changed-files list or commit information. The user can inspect Git status/diff/history themselves.
-
 The report is a handoff for the human reviewer, not a claim that the work is perfect. Mention uncertainties, deferred improvements, worthwhile investigations, and useful workflow/project follow-ups when they exist.
 
 ## Launching the new terminal
@@ -197,20 +181,11 @@ Use the bundled launcher (relative to this skill file):
 
 ```bash
 scripts/spawn-codex-worktree.sh \
-  "$WORKTREE_PATH" \
-  "$DELEGATED_PROMPT"
+  "../<slug>" \
+  "<delegated-prompt>"
 ```
 
-The launcher opens:
-
-```bash
-gnome-terminal --working-directory="$WORKTREE_PATH" -- ...
-```
-
-and starts a fresh interactive `codex` process there.
-
-The terminal deliberately remains open after Codex exits so the user can inspect the final output and shell state.
-
+The script launch new terminal and the instance of codex inside of it.
 Do not use `codex exec` for this workflow: the user explicitly wants an interactive Codex CLI instance in a separate terminal.
 
 ## Final response to the user
@@ -221,6 +196,3 @@ After launching, report:
 - branch name;
 - worktree path;
 - that a new GNOME Terminal/Codex instance was launched;
-- that the spawned instance is independent and will report its completion there.
-
-Do not claim that the task has been completed.
