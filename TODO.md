@@ -90,3 +90,33 @@
 ## website-visual-diff
 
 - The visual comparison produces noisy diffs when a change shifts content vertically: every pixel below the shift is reported as changed even when the same content is only displaced. This makes it difficult to identify the actual visual differences and the location of the layout shift.
+
+- make it possible to process in batch. At the moment an AI has to perform
+  calls to the runner script one by one.
+  There would instead be the possibility for the AI to gather a list of CSS Rule
+  locations. have the tool run on all of them. then the AI could just use the result as
+  it wish for example to extract result and inject it above the CSS rule.
+  The idea comes from an agent doing :
+  ```
+    $ set -u
+        runner=/home/tburette/dev/ai/ai-tools/website-visual-diff/scripts/run_visual_diff.mjs
+        css=themes/lepaysanurbain/assets/css/theme.css
+        ranges=(1140:1144 1146:1150 1152:1155 1157:1160 1177:1189 1191:1201 1203:1206)
+        labels=(button-link-transition button-link-hover-focus button-link-focus-outline button-on-color button-arrow button-arrow-icon button-arrow-state)
+        for i in "${!ranges[@]}"; do
+          r=${ranges[$i]}
+          outdir=$(mktemp -d /tmp/website-visual-diff.XXXXXX)
+          errfile=$(mktemp /tmp/website-visual-diff-run.XXXXXX)
+          result=$(node "$runner" 'http://lepaysanurbain.test:8888/lpu-sections-patterns-test/' --css-file "$css" --range "$r" --full-page --output-dir "$outdir" 2> "$errfile") || { cat
+        "$errfile"; exit 1; }
+          printf '%s\n' "$result" > "$outdir/run.json"
+          cp "$errfile" "$outdir/run.stderr"
+          comp="$outdir/comparison/01-lepaysanurbain.test-8888-lpu-sections-patterns-test/visual-diff.json"
+          jq -r --arg rr "$r" --arg nm "${labels[$i]}" --arg od "$outdir" --arg vw "$(jq -r '.viewerPath' "$outdir/run.json")" '"\($rr)\t\($nm)\t\($od)\t\($vw)\t" + (.pairs |
+        map("\(.name)=\(.changedPixels); height-changed=\(.dimensionMismatch)") | join(" | "))' "$comp"
+        done
+  ```
+
+```
+
+```
