@@ -137,12 +137,13 @@ The primary objective is to **implement the user's requested changes**.
 Tell the agent to:
 
 1. Understand the relevant architecture before editing.
-2. Before starting to implement the task, It should stop and ask the user if there is a major issue, multiple valid implementation, an important question or anything else critical he has to answer before implementation starts. This exchange is expected to take place most of the time unless the time is simple, focused and has no ambiguity.
+2. Once you have analyzed the task and thought about how to implement it, before starting to implement the task, you can stop and interact with the user: ask clarifying questions, propose alternative implementations,.. Better safe than sorry and make things clear if there is uncertainty or ambiguity. This exchange is expected to take place most of the time unless the task is simple, so ask away. 
 3. Implement the task completely rather than merely describing a solution.
-4. Keep the diff focused.
+4. Keep the diff focused. (Feel free to suggest changes, improvements, unrelated tasks after you've finished).
 5. Prefer the simplest implementation that satisfies the request.
-6. Avoid speculative improvements and unrelated cleanup.
-7. Do not turn the task into a broad refactoring exercise.
+6. Do not turn the task into a broad refactoring exercise.
+7. Avoid speculative improvements and unrelated cleanup (but you can suggest some at the end).
+8. When you're done, list the things you notices, possible improvements.
 
 ### Testing and validation
 
@@ -195,6 +196,9 @@ SUGGESTED TESTS
 NOTES / FOLLOW-UPS
 - <important assumption, limitation, investigation idea, possible improvement, technical debt, project/workflow improvement, or other useful follow-up>
 - <or "None">
+
+POSSIBLE IMPROVEMENTS, NEXT TASKS AND OTHER FOLLOW-UPS
+- list of items
 ```
 
 The report is a handoff for the human reviewer, not a claim that the work is perfect. Mention uncertainties, deferred improvements, worthwhile investigations, and useful workflow/project follow-ups when they exist.
