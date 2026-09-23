@@ -7,7 +7,9 @@ description: Create an isolated Git worktree for an implementation task and laun
 
 Use this skill to delegate the user's task to a **separate Codex CLI process** working in its own Git worktree and terminal.
 
-All scripts are relative to the skill directory (`cd` into it first or call by absolute path). The preflight and launch commands must still run with the user's project as their working directory, because `../<slug>` is relative to that directory; when the project is not the skill directory, call the bundled script by its absolute path.
+## When this skill is needed
+
+Use this workflow when the user specifically wants an independent Codex CLI process and isolated worktree/terminal. Use a direct subagent when it can handle the task and do not launch a separate terminal just to delegate.
 
 ## Expedited workflow
 
