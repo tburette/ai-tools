@@ -48,8 +48,8 @@ printf '%s\n' \
 	"$PARENT_ENTRIES" \
 	"" \
 	"Slug selection rules:" \
-	"  - Choose a short, filesystem-safe slug using lowercase letters, numbers, and hyphens." \
+	"  - Use the user-supplied name if given; otherwise choose a short, filesystem-safe slug using lowercase letters, numbers, and hyphens." \
 	"  - Use the exact slug as the local branch name; do not prepend codex/." \
 	"  - The new worktree directory will be: ../<slug> (resolved parent: $PARENT_DIRECTORY)." \
 	"  - Avoid names already listed as local branches, worktrees, or parent entries." \
-	"  - If a collision is found, choose a new slug or add a unique suffix such as -2 or -3."
+	"  - For a derived slug collision, choose a unique suffix such as -2 or -3; if an exact user-supplied name collides, do not create the worktree."
