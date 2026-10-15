@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clone wp-env"
+  short_description: "Clone WordPress data into the current worktree"
+  default_prompt: "Use $wp-env-clone to set up this checkout with a separate wp-env cloned from wordpress-lpu, without provisioning."
