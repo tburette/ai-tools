@@ -11,6 +11,7 @@ This repository is the source for a collection of agent tools, skills, and comma
 - `session-search/` is a standalone Node.js skill for searching local Codex and OpenCode session stores. Its runtime requirement and privacy boundary are documented in its `SKILL.md`.
 - `session-extract/` is an experimental skill for dumping the full conversation of a local Codex or OpenCode session from its id.
 - `lastscreenshot/` is a user-local Bash utility. It depends on `xclip` and the user's `~/Pictures/Screenshots` directory, and it writes the path to the last screenshot taken to the clipboard.
+- `run-at/` is a standalone Bash utility for running a command at the next occurrence of a local clock time.
 
 Treat each component directory as independently understandable and usable unless its documentation explicitly describes a nested component.
 

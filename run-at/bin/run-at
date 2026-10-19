@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+prog=${0##*/}
+
+usage() {
+	cat <<EOF
+Usage: $prog HH:MM[:SS] command [argument ...]
+
+Run a command at the next occurrence of a local clock time.
+
+Examples:
+  $prog 01:44:00 codex exec "hi"
+  $prog 02:15 bash -lc 'codex exec "hi"'
+
+If today's time has passed, the command is scheduled for tomorrow.
+EOF
+}
+
+err() {
+	printf '%s: %s\n' "$prog" "$1" >&2
+	exit 1
+}
+
+if [[ ${1-} == --_wait_until ]]; then
+	shift
+	(($# >= 2)) || err 'internal invocation is missing its target or command'
+	target=$1
+	shift
+	[[ $target =~ ^[0-9]+$ ]] || err 'internal target must be an epoch timestamp'
+
+	target_display=$(date --date="@$target" '+%F %T %Z') || err 'could not format target time'
+	printf '%s: waiting until %s\n' "$prog" "$target_display" >&2
+	now=$(date +%s)
+	if ((now < target)); then
+		sleep "$((target - now))"
+	fi
+
+	printf '%s: starting command\n' "$prog" >&2
+	exec "$@"
+fi
+
+if [[ ${1-} == -h || ${1-} == --help ]]; then
+	usage
+	exit 0
+fi
+
+if (($# < 2)); then
+	usage >&2
+	exit 2
+fi
+
+when=$1
+shift
+[[ $when =~ ^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$ ]] || err "expected a local time in HH:MM or HH:MM:SS form: $when"
+
+if [[ $1 == */* ]]; then
+	[[ -x $1 && ! -d $1 ]] || err "not an executable file: $1"
+else
+	type -P -- "$1" >/dev/null 2>&1 || err "executable not found in PATH: $1"
+fi
+
+now=$(date +%s)
+target=$(date --date="$when" +%s 2>/dev/null) || err "could not parse time: $when"
+if ((target < now)); then
+	target=$(date --date="tomorrow $when" +%s 2>/dev/null) || err "could not parse next occurrence of: $when"
+fi
+
+script_path=$(readlink -f -- "${BASH_SOURCE[0]}") || err 'could not resolve the script path'
+exec "$script_path" --_wait_until "$target" "$@"
