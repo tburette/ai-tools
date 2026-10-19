@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# key-at — press a key (Enter by default) at a chosen time, using ydotool.
+#
+# Set KEY_AT_DRY_RUN=1 to print what would happen instead of sending keys.
+#
+set -euo pipefail
+
+prog=${0##*/}
+
+usage() {
+	cat <<EOF
+Usage: $prog <when> [keycode:state ...]
+
+Send key event(s) with ydotool at the requested time.
+The default key is Enter (keycodes 28:1 28:0).
+
+<when> may be:
+  N | +N        wait N seconds from now (fractional allowed), e.g. 0.4 or 5
+  HH:MM[:SS]    wait until that clock time (uses tomorrow if already past)
+  @EPOCH        wait until a Unix timestamp (seconds, fractional allowed)
+
+Any remaining arguments replace the default key sequence.
+
+Examples:
+  $prog 0.4                        # Enter in 0.4 s
+  $prog 5                          # Enter in 5 s
+  $prog 14:30                      # Enter at 14:30 (today, or tomorrow)
+  $prog 14:30:00 105:1 105:0       # press Left at 14:30:00
+  $prog @1735689600                # Enter at a given Unix timestamp
+
+Notes:
+  Requires the ydotool daemon (ydotoold) to be running.
+  Keycodes are Linux input-event codes (Enter = 28).
+EOF
+}
+
+err() {
+	printf '%s: %s\n' "$prog" "$1" >&2
+	exit 1
+}
+
+case ${1-} in
+'' | -h | --help)
+	usage
+	[[ -n ${1-} ]] || exit 1
+	exit 0
+	;;
+esac
+
+when=$1
+shift
+
+command -v ydotool >/dev/null 2>&1 || err "ydotool not found in PATH"
+
+# Default key sequence: Enter press + release.
+keys=(28:1 28:0)
+if (($#)); then
+	keys=("$@")
+fi
+
+# Translate <when> into a fractional number of seconds to wait.
+case $when in
+@*)
+	target=${when#@}
+	[[ $target =~ ^[0-9]+(\.[0-9]+)?$ ]] || err "bad epoch timestamp: $when"
+	now=$(date +%s.%N)
+	delay=$(awk -v t="$target" -v n="$now" 'BEGIN { printf "%.6f", t - n }')
+	;;
+*:*)
+	target=$(date -d "$when" +%s 2>/dev/null) || err "bad clock time: $when"
+	now=$(date +%s)
+	if ((target <= now)); then
+		target=$(date -d "tomorrow $when" +%s) || err "bad clock time: $when"
+	fi
+	delay=$((target - now))
+	;;
++*)
+	delay=${when#+}
+	;;
+*)
+	delay=$when
+	;;
+esac
+
+[[ $delay =~ ^[0-9]+(\.[0-9]+)?$ ]] || err "bad wait/delay: $when"
+
+if [[ ${KEY_AT_DRY_RUN:-} == 1 ]]; then
+	printf 'would wait %ss, then: ydotool key %s\n' "$delay" "${keys[*]}"
+	exit 0
+fi
+
+if awk -v d="$delay" 'BEGIN { exit !(d > 0) }'; then
+	sleep "$delay"
+fi
+
+exec ydotool key "${keys[@]}"
