@@ -35,6 +35,12 @@
   fail deep inside Chromium ("user data directory in use"). Find a way to make
   it reentrant or add a pre-launch lockfile check with an actionable error.
 
+## CSS inspection tool for agents (planning stage)
+
+A possible agent-facing tool for actual rendered CSS information for an element.
+Similar to a browser devtools Rules view.
+See `css-inspector/`.
+
 ## wordpress-inspector
 
 - [x] Make authentication reports easier to find. When `wordpress-inspector authenticate` is run, it writes its result under a randomly named directory in `/tmp`; this avoids collisions and accidentally reusing old reports, but makes the result difficult for a user or agent to locate afterward. Keep that safe random directory as the default, and document an explicit option such as `--output-dir /tmp/wordpress-inspector/auth` for workflows that need a predictable location.

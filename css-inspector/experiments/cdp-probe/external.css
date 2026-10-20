@@ -1,0 +1,14 @@
+@layer early, late;
+@layer early {
+  .probe { padding-left: 11px !important; width: 111px; }
+}
+@layer late {
+  #probe { padding-left: 22px !important; width: 222px; }
+}
+#probe { color: rgb(255, 0, 0); }
+.probe { margin-bottom: 100px; margin-top: 11px; letter-spacing: 1px; }
+.probe { margin-top: 22px; }
+.probe { margin-block-end: 7px !important; writing-mode: horizontal-tb; }
+.probe { border-top: 3px solid var(--accent); }
+.probe:hover { color: rgb(0, 128, 0) !important; }
+.probe::before { content: "CSS "; font-weight: 700; }
