@@ -126,3 +126,46 @@ See `css-inspector/`.
 ```
 
 ```
+
+## session-search
+
+- Compressed Codex session logs (`.jsonl.zst`) are skipped, so the skill answers
+  "No session contains this string" when the match is only in archived history.
+  That is the common case, not an edge case: on 2026-11-06 the stores held 1691
+  compressed logs against 148 plain ones, so most of the corpus was invisible.
+  `scripts/search_sessions.mjs` walks the log directories and keeps only names
+  ending in `.jsonl` (`listCodexRollouts`), and its filename fallback for the
+  session id anchors on `\.jsonl$`, so compressed logs need both the extension
+  and that regex extended — otherwise the ones whose `session_meta` fails to
+  parse all collapse into a single empty-id result. Observed: searching
+  `--_wait_until` matched nothing while the string appeared on 23 lines of
+  `~/.codex/sessions/2026/10/19/rollout-2026-10-19T22-09-31-*.jsonl.zst`.
+  Accept `.jsonl.zst` too and decompress with the built-in
+  `zlib.zstdDecompressSync` (Node 22.15+; the `node:sqlite` floor alone only
+  needs 22.5), detecting it with `typeof` rather than a version string and
+  falling back to `zstd -dc` when absent. Report compressed and plain counts
+  separately in the Method section, and warn there instead of skipping silently
+  when decompression is unavailable. Update SKILL.md "Where the data lives" and
+  the "Node built-ins only; Node 22+" line at SKILL.md:41, and add a scripted
+  check (no test harness exists today) that builds a temp store with one plain
+  and one compressed log and asserts both match.
+
+## run-at
+
+- Drop the vestigial self re-execution in `bin/run-at`. The script `exec`s itself
+  with an internal `--_wait_until <epoch>` mode that sleeps and then execs the
+  command. That two-phase split originally existed so the wait could run as a
+  child of `systemd-inhibit`, which can only wrap an external command (recorded
+  in the authoring session `01a155c8-982d-7e60-a0a8-b9f6c234ee67`; the repo
+  history is a single commit). The inhibitor was later replaced by setting
+  GNOME's plugged-in "Automatic Suspend" to `nothing`, so the second phase now
+  has nothing wrapping it. What remains is dead complexity plus a hard `readlink`
+  dependency that exists only to feed the re-exec, and a message prefix that
+  changes mid-run when invoked through a symlink (`foo: waiting until ...`
+  becomes `run-at: starting command`, because the inner process re-derives
+  `${0##*/}` from the resolved path). Move the wait — `date`, `sleep`, then
+  `exec "$@"` — into the main path, delete the `--_wait_until` branch and the
+  now-unused `script_path=$(readlink -f ...)` line, and drop `readlink` from
+  README.md:7. Keep the messages and exit status identical; derive the printed
+  target from `$target` (the epoch), not `$when`, or the absolute/TZ formatting
+  changes. Verify with `bash -n` and the one-minute check in README.md:71.
